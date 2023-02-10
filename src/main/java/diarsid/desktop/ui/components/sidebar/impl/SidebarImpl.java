@@ -26,6 +26,7 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
@@ -241,13 +242,6 @@ public class SidebarImpl implements
         this.sidebarMargin.getStyleClass().add("sidebar-margin");
         this.sidebarMargin.setAlignment(Pos.CENTER);
 
-        this.applyPseudoClass(this.initialSide);
-
-        this.items = initialItems.get();
-        this.itemNodes = new ArrayList<>();
-
-        this.itemsToNodes();
-
         this.itemsViewHorizontal = new HBox();
         this.itemsViewHorizontal.getStyleClass().add("sidebar-items");
         this.itemsViewHorizontal.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, false);
@@ -257,6 +251,13 @@ public class SidebarImpl implements
         this.itemsViewVertical.getStyleClass().add("sidebar-items");
         this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, true);
         this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_HORIZONTAL, false);
+
+        this.applyPseudoClass(this.initialSide);
+
+        this.items = initialItems.get();
+        this.itemNodes = new ArrayList<>();
+
+        this.itemsToNodes();
 
 //        this.actionsViewVertical.getChildren().addAll(button1V, button2V);
 //        this.actionsViewHorizontal.getChildren().addAll(button1H, button2H);
@@ -362,10 +363,6 @@ public class SidebarImpl implements
             this.position.set(new RealPosition(side, min));
         });
 
-        this.stage.setScene(scene);
-        this.stage.sizeToScene();
-        this.stage.show();
-
         double coordinate = getInScreenCoordinate(this.initialSide, position.coordinate());
 
         switch ( this.initialSide ) {
@@ -392,6 +389,14 @@ public class SidebarImpl implements
         this.touchArea = new SidebarAreaForTouch(this.screen, this.stage, this.side);
         this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
         this.shownArea = new SidebarAreaWhenShown(this.screen, this.stage, this.side);
+
+        this.stage.setScene(scene);
+        this.stage.sizeToScene();
+
+        this.stage.setX(this.hiddenArea.x.get());
+        this.stage.setY(this.hiddenArea.y.get());
+
+        this.stage.show();
 
         double showTime = 0.5;
         double hideTime = 0.5;
@@ -541,6 +546,14 @@ public class SidebarImpl implements
         this.session.touch(TOUCH_IS_PROGRAMMATICAL);
     }
 
+    private void doAdjustmentInternalMove() {
+        this.stage.sizeToScene();
+        this.doInternalMove(
+                this.stage.getX(),
+                this.stage.getY(),
+                ADJUSTMENT_MOVE);
+    }
+
     private void itemsToNodes() {
         this.itemNodes.clear();
 
@@ -556,6 +569,16 @@ public class SidebarImpl implements
                     "sidebar-item",
                     "sidebar-item-" + i,
                     "sidebar-item-" + item.name().toLowerCase());
+
+            if ( itemNode instanceof Region ) {
+                Region itemRegion = (Region) itemNode;
+                itemRegion.widthProperty().addListener((prop, oldV, newV) -> {
+                    Platform.runLater(this::rebuildItemsView);
+                });
+                itemRegion.heightProperty().addListener((prop, oldV, newV) -> {
+                    Platform.runLater(this::rebuildItemsView);
+                });
+            }
             this.itemNodes.add(itemNode);
         }
     }
@@ -571,11 +594,13 @@ public class SidebarImpl implements
 
         Area area = this.screen.areaOf(pointerMove);
 
-        if ( area instanceof Rectangle.Area.Inside ) {
+        if ( area instanceof Rectangle.Side ) {
+            newSide = (Side) area;
+        }
+        else if ( area instanceof Rectangle.Area.Inside ) {
             throw new IllegalStateException();
         }
-
-        if ( area instanceof OutsideToSide ) {
+        else if ( area instanceof OutsideToSide ) {
             newSide = ((OutsideToSide) area).side;
         }
         else if ( area instanceof OutsideToCorner ) {
@@ -863,6 +888,8 @@ public class SidebarImpl implements
                 .forEach((pseudoClass, active) -> {
                     this.sidebar.pseudoClassStateChanged(pseudoClass, active);
                     this.sidebarMargin.pseudoClassStateChanged(pseudoClass, active);
+                    this.itemsViewHorizontal.pseudoClassStateChanged(pseudoClass, active);
+                    this.itemsViewVertical.pseudoClassStateChanged(pseudoClass, active);
                 });
     }
 
@@ -1076,22 +1103,7 @@ public class SidebarImpl implements
         if ( queuedAction instanceof ItemsChange ) {
             ((ItemsChange) queuedAction).mutation.accept(this.items);
             this.itemsToNodes();
-            Pane childrenView = (Pane) this.sidebar.getChildren().get(0);
-            List<Node> currentItemNodes = childrenView.getChildren();
-            currentItemNodes.clear();
-            currentItemNodes.addAll(this.itemNodes);
-            this.stage.sizeToScene();
-            boolean oldMovable = this.stageMoving.isMovable().get();
-            if ( ! oldMovable ) {
-                this.stageMoving.isMovable().set(true);
-            }
-            this.stageMoving.move(
-                    this.stage.getX(),
-                    this.stage.getY(),
-                    ADJUSTMENT_MOVE);
-            if ( ! oldMovable ) {
-                this.stageMoving.isMovable().set(false);
-            }
+            this.rebuildItemsView();
         }
         else if ( queuedAction instanceof ProgrammaticMove) {
             this.process((ProgrammaticMove) queuedAction);
@@ -1129,6 +1141,14 @@ public class SidebarImpl implements
                 }
             }
         }
+    }
+
+    private void rebuildItemsView() {
+        Pane childrenView = (Pane) this.sidebar.getChildren().get(0);
+        List<Node> currentItemNodes = childrenView.getChildren();
+        currentItemNodes.clear();
+        currentItemNodes.addAll(this.itemNodes);
+        this.doAdjustmentInternalMove();
     }
 
     private void process(ProgrammaticMove move) {
@@ -1216,12 +1236,16 @@ public class SidebarImpl implements
             }
         }
 
+        this.doInternalMove(newX, newY, PROGRAMMATIC_INSTANT_MOVE);
+    }
+
+    private void doInternalMove(double newX, double newY, String move) {
         boolean movable = this.stageMoving.isMovable().get();
         try {
             if ( ! movable ) {
                 this.stageMoving.isMovable().set(true);
             }
-            this.stageMoving.move(newX, newY, PROGRAMMATIC_INSTANT_MOVE);
+            this.stageMoving.move(newX, newY, move);
         }
         finally {
             this.stageMoving.isMovable().set(movable);
