@@ -2,22 +2,31 @@ package diarsid.desktop.ui.components.sidebar;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import diarsid.desktop.ui.components.sidebar.api.Sidebar;
-import diarsid.desktop.ui.components.sidebar.api.RealPosition;
+import diarsid.desktop.ui.components.sidebar.impl.storedpositions.SidebarStoredPosition;
+import diarsid.desktop.ui.components.sidebar.impl.storedpositions.SidebarStoredPositions;
 import diarsid.desktop.ui.mouse.watching.MouseWatcher;
+import diarsid.files.objects.InFile;
 import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.javafx.PlatformActions;
 
+import static java.util.UUID.randomUUID;
+
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PARALLEL_TO_SIDE;
-import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PERPENDICULAR_TO_SIDE;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.BOTTOM_CENTER;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.RIGHT_CENTER;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.TOP_CENTER;
 import static diarsid.support.concurrency.test.CurrentThread.blocking;
 
 public class Main {
@@ -26,10 +35,12 @@ public class Main {
 
     static class LabelItem implements Sidebar.Item {
 
+        private final UUID uuid;
         private final String name;
         private final Label label;
 
         public LabelItem(String name) {
+            this.uuid = randomUUID();
             this.name = name;
 
             this.label = new Label();
@@ -55,12 +66,34 @@ public class Main {
         public String name() {
             return "Label-" + this.name;
         }
+
+        @Override
+        public UUID uuid() {
+            return this.uuid;
+        }
+
+        @Override
+        public void run() {
+
+        }
+
+        @Override
+        public List<MenuItem> itemsContextMenuItems() {
+            return List.of(new MenuItem(name + " - A"), new MenuItem(name + " - B"));
+        }
     }
 
     public static void main(String[] args) throws Exception {
         PlatformActions.awaitStartup();
 
-        Sidebar.Position position = new RealPosition(TOP, 1798);
+        String name = "sidebar-demo";
+
+//        Sidebar.Position position = new RealManualPosition(TOP, 1798);
+        Sidebar.Position.Relative initialPosition = TOP_CENTER;
+
+        SidebarStoredPositions sidebarStoredPositions = new SidebarStoredPositions();
+
+        InFile<SidebarStoredPosition> storedPositionInFile = sidebarStoredPositions.readOrWriteIfAbsent(name, initialPosition);
 
         NamedThreadSource namedThreadSource = new NamedThreadSource("sidebar-demo");
         MouseWatcher mouseWatcher = new MouseWatcher(10);
@@ -71,15 +104,15 @@ public class Main {
 //            System.out.println("moved to: " + side.name() + " " + min);
 //        };
 
-        Sidebar.Session.TouchListener touchListener = (touchKind) -> {
+        Sidebar.Session.Touch.Listener touchListener = (touchKind) -> {
             System.out.println("touched - " + touchKind);
         };
 
         BooleanProperty isPinned = new SimpleBooleanProperty(false);
 
         Sidebar sidebar = Sidebar.createInstance(
-                "sidebar-demo",
-                position,
+                name,
+                storedPositionInFile.read().position(),
                 isPinned,
                 namedThreadSource,
                 PARALLEL_TO_SIDE,
@@ -89,11 +122,21 @@ public class Main {
                     items.add(new LabelItem("B"));
                     items.add(new LabelItem("C"));
                     return items;
-                });
+                },
+                2.0, 2.0);
 
         mouseWatcher.add(sidebar);
         sidebar.position().addListener((ref, oldPosition, newPosition) -> {
-            System.out.println("moved to: " + newPosition.side().name() + " " + newPosition.coordinate());
+            if ( newPosition.hasRelative() ) {
+                System.out.println("moved to: " + newPosition.relativeOrThrow());
+            }
+            else {
+                System.out.println("moved to: " + newPosition.side().name() + " " + newPosition.coordinate());
+            }
+
+            storedPositionInFile.modifyIfPresent((oldStoredPosition) -> {
+                return oldStoredPosition.newWith(newPosition);
+            });
         });
         sidebar.control().session().add(touchListener);
 

@@ -20,7 +20,7 @@ import diarsid.support.objects.references.Possible;
 import static java.util.Collections.synchronizedList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.TouchListener.TOUCH_IS_PROGRAMMATICAL;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.PROGRAMMATICAL;
 import static diarsid.support.concurrency.threads.ThreadsUtil.shutdownAndWait;
 import static diarsid.support.objects.collections.CollectionUtils.nonEmpty;
 import static diarsid.support.objects.references.References.simplePossibleButEmpty;
@@ -38,7 +38,7 @@ public class SidebarSession implements Sidebar.Session {
     private final Possible<Future<?>> deactivation;
     private final List<String> blocks;
     private final ScheduledExecutorService async;
-    private final List<TouchListener> touchListeners;
+    private final List<Touch.Listener> touchListeners;
 
     public SidebarSession(
             String name,
@@ -77,7 +77,7 @@ public class SidebarSession implements Sidebar.Session {
         lock.writeLock().lock();
         try {
             if ( blocks.isEmpty() ) {
-                doTouch(TOUCH_IS_PROGRAMMATICAL);
+                doTouch(PROGRAMMATICAL);
             }
         }
         finally {
@@ -102,7 +102,7 @@ public class SidebarSession implements Sidebar.Session {
         lock.writeLock().lock();
         try {
             if ( blocks.isEmpty() ) {
-                doTouch(TOUCH_IS_PROGRAMMATICAL);
+                doTouch(PROGRAMMATICAL);
                 block(block);
             }
         }
@@ -194,12 +194,12 @@ public class SidebarSession implements Sidebar.Session {
     }
 
     @Override
-    public void add(TouchListener touchListener) {
+    public void add(Touch.Listener touchListener) {
         this.touchListeners.add(touchListener);
     }
 
     @Override
-    public boolean remove(TouchListener touchListener) {
+    public boolean remove(Touch.Listener touchListener) {
         return this.touchListeners.remove(touchListener);
     }
 
@@ -217,7 +217,7 @@ public class SidebarSession implements Sidebar.Session {
     private void activate(String touchKind) {
         Platform.runLater(() -> {
             onActivation.accept(touchKind);
-            for ( TouchListener touchListener : this.touchListeners ) {
+            for ( Touch.Listener touchListener : this.touchListeners ) {
                 try {
                     touchListener.onTouchedOf(touchKind);
                 }

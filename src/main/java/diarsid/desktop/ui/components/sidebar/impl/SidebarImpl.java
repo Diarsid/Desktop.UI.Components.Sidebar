@@ -2,7 +2,6 @@ package diarsid.desktop.ui.components.sidebar.impl;
 
 import java.awt.MouseInfo;
 import java.awt.Point;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -26,22 +25,23 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import javafx.stage.WindowEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.RealPosition;
 import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarContextMenu;
+import diarsid.desktop.ui.components.sidebar.impl.items.SidebarItems;
 import diarsid.desktop.ui.geometry.Anchor;
 import diarsid.desktop.ui.geometry.PointToCorner;
 import diarsid.desktop.ui.geometry.Rectangle;
 import diarsid.desktop.ui.geometry.Size;
 import diarsid.desktop.ui.mouse.watching.Watch;
-import diarsid.support.concurrency.Permission;
+import diarsid.support.concurrency.BlockingPermission;
 import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.exceptions.UnsupportedLogicException;
 import diarsid.support.javafx.geometry.Screen;
@@ -50,14 +50,14 @@ import diarsid.support.javafx.stage.StageMoving;
 import diarsid.support.objects.CommonEnum;
 
 import static java.lang.String.format;
-import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.isNull;
+import static java.util.Objects.nonNull;
 
 import static javafx.css.PseudoClass.getPseudoClass;
+import static javafx.scene.input.MouseEvent.MOUSE_PRESSED;
 
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PARALLEL_TO_SIDE;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.TouchListener.TOUCH_IS_MANUAL;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.TouchListener.TOUCH_IS_PROGRAMMATICAL;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.MANUAL;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDDEN;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDING;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_SHOWING;
@@ -86,7 +86,7 @@ public class SidebarImpl implements
     private static final Logger log = LoggerFactory.getLogger(SidebarImpl.class);
 
     private static final String PROGRAMMATIC_INSTANT_MOVE = "PROGRAMMATIC_MOVE";
-    private static final String ADJUSTMENT_MOVE = "PROGRAMMATIC_MOVE";
+    private static final String ADJUSTMENT_MOVE = "ADJUSTMENT_MOVE";
 
     private static final EnumMap<Side, Map<PseudoClass, Boolean>> PSEUDO_CLASS_ACTIVENESS_BY_SIDE;
     private static final PseudoClass CSS_LEFT = getPseudoClass(LEFT.name().toLowerCase());
@@ -127,7 +127,7 @@ public class SidebarImpl implements
 
     private final String name;
     private final ObjectProperty<State> state;
-    private final ObjectProperty<Position> position;
+    private final ObjectProperty<Position.Current> position;
     private final Items.Alignment itemsAlignment;
     private final BooleanProperty isPinned;
 
@@ -138,14 +138,12 @@ public class SidebarImpl implements
     private final Pane sidebar;
     private final HBox sidebarMargin;
 
+    private final ObjectProperty<Position.Relative> relative;
+
     public final ObjectProperty<Rectangle.Side> side;
     public final SidebarSession session;
 
-    private final List<Item> items;
-    private final List<Node> itemNodes;
-
-//    private Label button1;
-//    private Label button2;
+    private final SidebarItems items;
 
     private Screen.Side initialSide;
 
@@ -156,11 +154,13 @@ public class SidebarImpl implements
     private final SidebarAreaWhenHidden hiddenArea;
     private final SidebarAreaWhenShown shownArea;
 
+    private final SidebarContextMenu sidebarContextMenu;
+
     public final Watch watch;
     private final ShowHideAnimation showHideAnimation;
 
     private final BlockingQueue<QueuedAction> queuedActions;
-    private final Permission programmaticMovesPermission;
+    private final BlockingPermission queueActionBlockingPermission;
     private final ExecutorService asyncQueuedActions;
     private final Future<?> asyncQueuedActionsProcessing;
 
@@ -170,27 +170,13 @@ public class SidebarImpl implements
             BooleanProperty isPinned,
             NamedThreadSource namedThreadSource,
             Items.Alignment itemsAlignment,
-            Supplier<List<Item>> initialItems) {
-
-//        button1 = new Label();
-//        button1.setMinHeight(30);
-//        button1.setMinWidth(30);
-//        button1.setMaxHeight(30);
-//        button1.setMaxWidth(30);
-//
-//        button2 = new Label();
-//        button2.setMinHeight(30);
-//        button2.setMinWidth(30);
-//        button2.setMaxHeight(30);
-//        button2.setMaxWidth(30);
+            Supplier<List<Item>> initialItems,
+            double showTime,
+            double hideTime) {
 
         this.name = name;
         this.state = new SimpleObjectProperty<>();
-        this.position = new SimpleObjectProperty<>(position);
         this.itemsAlignment = itemsAlignment;
-//        this.async = namedThreadSource.newNamedFixedThreadPool(
-//                this.getClass().getCanonicalName() + "[" + name + "].async",
-//                3);
         this.isPinned = isPinned;
 
         this.hiddenStages = new HiddenStages();
@@ -203,26 +189,6 @@ public class SidebarImpl implements
         this.stage.setResizable(true);
 
         this.screen = Screen.screenOf(PHYSICAL);
-
-//        for ( OnAction onAction : onActions ) {
-//            if ( onAction instanceof OnAction.Moved ) {
-//                this.onMoved.add((OnAction.Moved) onAction);
-//            }
-//            else if ( onAction instanceof TouchListener) {
-//                this.touchListener.add((TouchListener) onAction);
-//            }
-//            else if ( onAction instanceof OnAction.Shown ) {
-//                this.onShown.add((OnAction.Shown) onAction);
-//            }
-//            else if ( onAction instanceof OnAction.Hidden ) {
-//                this.onHidden.add((OnAction.Hidden) onAction);
-//            }
-//            else {
-//                throw new UnsupportedLogicException(format("%s type of %s callback is not supported!",
-//                        onAction.getClass().getSimpleName(),
-//                        OnAction.class.getSimpleName()));
-//            }
-//        }
 
         this.initialSide = position.side();
         this.side = new SimpleObjectProperty<>(this.initialSide);
@@ -242,6 +208,9 @@ public class SidebarImpl implements
         this.sidebarMargin.getStyleClass().add("sidebar-margin");
         this.sidebarMargin.setAlignment(Pos.CENTER);
 
+        this.position = new SimpleObjectProperty<>();
+        this.relative = new SimpleObjectProperty<>(null);
+
         this.itemsViewHorizontal = new HBox();
         this.itemsViewHorizontal.getStyleClass().add("sidebar-items");
         this.itemsViewHorizontal.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, false);
@@ -254,13 +223,32 @@ public class SidebarImpl implements
 
         this.applyPseudoClass(this.initialSide);
 
-        this.items = initialItems.get();
-        this.itemNodes = new ArrayList<>();
+        this.sidebarContextMenu = new SidebarContextMenu(this::moveTo);
+        this.sidebarContextMenu.setAutoHide(true);
 
-        this.itemsToNodes();
+        this.sidebar.addEventHandler(MOUSE_PRESSED, event -> {
+            this.sidebarContextMenu.removeSelectedItemSubmenu();
+            if ( event.isPrimaryButtonDown() ) {
+                this.sidebarContextMenu.hide();
+            }
+            else if ( event.isSecondaryButtonDown() ) {
+                this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
+            }
+        });
 
-//        this.actionsViewVertical.getChildren().addAll(button1V, button2V);
-//        this.actionsViewHorizontal.getChildren().addAll(button1H, button2H);
+        this.sidebarContextMenu.setOnShowing(this::blockSessionByContextMenu);
+        this.sidebarContextMenu.setOnHiding(this::unblockSessionByContextMenu);
+
+        this.items = new SidebarItems(
+                initialItems,
+                (prop, oldV, newV) -> {
+                    Platform.runLater(this::adjustSizeAndPositioningAfterStageChange);
+                },
+                this.sidebarContextMenu::hide,
+                (event, itemSubMenu) -> {
+                    this.sidebarContextMenu.addSelectedItemSubmenu(itemSubMenu);
+                    this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
+                });
 
         this.arrangeView(this.initialSide);
 
@@ -268,16 +256,16 @@ public class SidebarImpl implements
                 this.name,
                 500,
                 namedThreadSource,
-                (touckKind) -> this.showDock(),
-                this::tryHideDock,
+                (touckKind) -> this.showSidebar(),
+                this::tryHideSidebar,
                 this::canFinishSession);
 
         this.sidebar.setOnMouseEntered(event -> {
-            this.session.touch(TOUCH_IS_MANUAL);
+            this.session.touch(MANUAL);
         });
 
         this.sidebar.setOnMouseMoved(event -> {
-            this.session.touch(TOUCH_IS_MANUAL);
+            this.session.touch(MANUAL);
         });
 
         Scene scene = new Scene(this.sidebarMargin);
@@ -318,6 +306,9 @@ public class SidebarImpl implements
 
         this.stageMoving.beforeMove((behavior, stageMove, mouseMove) -> {
             this.session.block("MOVING");
+            if ( behavior.equals(MOVE_BY_MOUSE) ) {
+                this.relative.set(null);
+            }
         });
 
         this.stageMoving.afterMove((behavior, stageMove, pointerMove) -> {
@@ -349,21 +340,43 @@ public class SidebarImpl implements
                 }
             }
 
-//            this.async.submit(() -> {
-//                for ( OnAction.Moved callback : this.onMoved ) {
-//                    try {
-//                        callback.onMovedTo(side, min, max);
-//                    }
-//                    catch (Throwable t) {
-//                        log.error(t.getMessage(), t);
-//                    }
-//                }
-//            });
-
-            this.position.set(new RealPosition(side, min));
+            Position.Relative currentRelative = this.relative.get();
+            if ( isNull(currentRelative) ) {
+                this.position.set(new CurrentPosition(side, min));
+            }
+            else {
+                this.position.set(new CurrentPosition(side, min, currentRelative));
+            }
         });
 
-        double coordinate = getInScreenCoordinate(this.initialSide, position.coordinate());
+        this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
+
+        this.stage.setScene(scene);
+        this.stage.sizeToScene();
+
+        this.stage.setX(this.hiddenArea.x.get());
+        this.stage.setY(this.hiddenArea.y.get());
+
+        this.stage.show();
+
+        Runnable manualTouchSession = () -> {
+            this.session.touch(MANUAL);
+        };
+
+        double coordinate;
+        if ( position instanceof Position.Absolute) {
+            coordinate = calculateShownCoordinateOf(this.initialSide, ((Position.Absolute) position).coordinate());
+            log.info("[POSITION] relative - NONE");
+            this.relative.set(null);
+            this.position.set(new CurrentPosition(this.initialSide, coordinate));
+        }
+        else {
+            Position.Relative relativePosition = (Position.Relative) position;
+            coordinate = calculateInCenterCoordinateOf(relativePosition);
+            log.info("[POSITION] relative - " + relativePosition);
+            this.relative.set(relativePosition);
+            this.position.set(new CurrentPosition(this.initialSide, coordinate, relativePosition));
+        }
 
         switch ( this.initialSide ) {
             case TOP:
@@ -375,11 +388,11 @@ public class SidebarImpl implements
                 stage.setY(coordinate);
                 break;
             case RIGHT:
-                stage.setX(this.screen.width() - this.stage.getWidth());
+                stage.setX(this.calculateRightShownX());
                 stage.setY(coordinate);
                 break;
             case BOTTOM:
-                stage.setY(this.screen.height() - this.stage.getHeight());
+                stage.setY(this.calculateBottomShownY());
                 stage.setX(coordinate);
                 break;
             default:
@@ -387,23 +400,7 @@ public class SidebarImpl implements
         }
 
         this.touchArea = new SidebarAreaForTouch(this.screen, this.stage, this.side);
-        this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
         this.shownArea = new SidebarAreaWhenShown(this.screen, this.stage, this.side);
-
-        this.stage.setScene(scene);
-        this.stage.sizeToScene();
-
-        this.stage.setX(this.hiddenArea.x.get());
-        this.stage.setY(this.hiddenArea.y.get());
-
-        this.stage.show();
-
-        double showTime = 0.5;
-        double hideTime = 0.5;
-
-        Runnable manualTouchSession = () -> {
-            this.session.touch(TOUCH_IS_MANUAL);
-        };
 
         this.watch = new Watch(
                 "Dock:" + this.name,
@@ -421,25 +418,27 @@ public class SidebarImpl implements
                     }
                 });
 
-        CyclicBarrier platformSync = new CyclicBarrier(2);
+        CyclicBarrier actionOnPlatformExecution = new CyclicBarrier(2);
         this.queuedActions = new ArrayBlockingQueue<>(10, true);
-        this.programmaticMovesPermission = new Permission();
+
+        this.queueActionBlockingPermission = new BlockingPermission();
+
         this.asyncQueuedActions = namedThreadSource.newNamedFixedThreadPool(
                 this.getClass().getCanonicalName() + "[" + name + "].queuedActions",
                 1);
 
-        Runnable processQueuedActionsInLopp = () -> {
+        Runnable processQueuedActionsInLoop = () -> {
             while ( true ) {
                 try {
                     QueuedAction queuedAction = this.queuedActions.take();
-                    this.programmaticMovesPermission.awaitIfForbidden();
+                    this.queueActionBlockingPermission.awaitIfForbidden();
                     Platform.runLater(() -> {
                         try {
                             this.process(queuedAction);
                         }
                         finally {
                             try {
-                                platformSync.await();
+                                actionOnPlatformExecution.await();
                             }
                             catch (InterruptedException | BrokenBarrierException e) {
                                 log.error("interrupted", e);
@@ -452,17 +451,17 @@ public class SidebarImpl implements
                 }
 
                 try {
-                    platformSync.await();
+                    actionOnPlatformExecution.await();
                 }
                 catch (InterruptedException | BrokenBarrierException e) {
                     log.error("interrupted", e);
                 }
 
-                platformSync.reset();
+                actionOnPlatformExecution.reset();
             }
         };
 
-        this.asyncQueuedActionsProcessing = this.asyncQueuedActions.submit(processQueuedActionsInLopp);
+        this.asyncQueuedActionsProcessing = this.asyncQueuedActions.submit(processQueuedActionsInLoop);
 
         this.showHideAnimation = new ShowHideAnimation(
                 hideTime,
@@ -492,95 +491,42 @@ public class SidebarImpl implements
                     }
                 },
                 /* on hiding begins */ () -> {
-                    this.programmaticMovesPermission.forbid();
+                    this.queueActionBlockingPermission.forbid();
                     this.stageMoving.isMovable().set(false);
                     this.state.set(IS_HIDING);
                 },
                 /* on hiding finished */ () -> {
-                    this.programmaticMovesPermission.allow();
+                    this.queueActionBlockingPermission.allow();
                     this.stageMoving.isMovable().set(true);
                     this.state.set(IS_HIDDEN);
                     this.sidebar.setVisible(false);
                     Platform.requestNextPulse();
-//                    if ( nonEmpty(this.onHidden) ) {
-//                        this.async.submit(() -> {
-//                            for ( OnAction.Hidden callback : this.onHidden ) {
-//                                try {
-//                                    callback.onHidden();
-//                                }
-//                                catch (Throwable t) {
-//                                    log.error(t.getMessage(), t);
-//                                }
-//                            }
-//                        });
-//                    }
                 },
                 /* on showing begins */ () -> {
-                    this.programmaticMovesPermission.forbid();
+                    this.queueActionBlockingPermission.forbid();
                     this.stageMoving.isMovable().set(false);
                     this.state.set(IS_SHOWING);
                 },
                 /* on showing finished */ () -> {
-                    this.programmaticMovesPermission.allow();
+                    this.queueActionBlockingPermission.allow();
                     this.stageMoving.isMovable().set(true);
                     this.state.set(IS_SHOWN);
-//                    if ( nonEmpty(this.onShown) ) {
-//                        this.async.submit(() -> {
-//                            for ( OnAction.Shown callback : this.onShown ) {
-//                                try {
-//                                    callback.onShown();
-//                                }
-//                                catch (Throwable t) {
-//                                    log.error(t.getMessage(), t);
-//                                }
-//                            }
-//                        });
-//                    }
                 });
 
-        this.stage.setX(this.hiddenArea.x.get());
-        this.stage.setY(this.hiddenArea.y.get());
+        this.stage.setX(this.hiddenArea.anchor().x());
+        this.stage.setY(this.hiddenArea.anchor().y());
 
         this.state.set(IS_HIDDEN);
 
-        this.session.touch(TOUCH_IS_PROGRAMMATICAL);
+//        this.session.touch(PROGRAMMATICAL);
     }
 
-    private void doAdjustmentInternalMove() {
-        this.stage.sizeToScene();
-        this.doInternalMove(
-                this.stage.getX(),
-                this.stage.getY(),
-                ADJUSTMENT_MOVE);
+    private void blockSessionByContextMenu(WindowEvent event) {
+        this.session.block("CONTEXT_MENU");
     }
 
-    private void itemsToNodes() {
-        this.itemNodes.clear();
-
-        Item item;
-        Node itemNode;
-        for ( int i = 0; i < this.items.size(); i++ ) {
-            item = this.items.get(i);
-            itemNode = item.node();
-
-            itemNode.getStyleClass().removeIf(styleClass -> styleClass.startsWith("sidebar-item"));
-
-            itemNode.getStyleClass().addAll(
-                    "sidebar-item",
-                    "sidebar-item-" + i,
-                    "sidebar-item-" + item.name().toLowerCase());
-
-            if ( itemNode instanceof Region ) {
-                Region itemRegion = (Region) itemNode;
-                itemRegion.widthProperty().addListener((prop, oldV, newV) -> {
-                    Platform.runLater(this::rebuildItemsView);
-                });
-                itemRegion.heightProperty().addListener((prop, oldV, newV) -> {
-                    Platform.runLater(this::rebuildItemsView);
-                });
-            }
-            this.itemNodes.add(itemNode);
-        }
+    private void unblockSessionByContextMenu(WindowEvent event) {
+        this.session.unblock("CONTEXT_MENU");
     }
 
     private void interceptOutOfScreenMove(String behavior, StageMoving.Move.Changeable stageMove, StageMoving.Move pointerMove) {
@@ -759,6 +705,16 @@ public class SidebarImpl implements
                     Rectangle.Side nextSide = (Rectangle.Side) area;
                     this.makeMoveTo(nextSide, stageMove);
                 }
+                else if ( area instanceof OutsideToSide ) {
+                    Rectangle.Side nextSide = ((OutsideToSide) area).side;
+                    this.makeMoveTo(nextSide, stageMove);
+                }
+                else if ( area instanceof OutsideToCorner ) {
+                    throw new UnsupportedLogicException();
+                }
+                else {
+                    throw new UnsupportedLogicException();
+                }
             }
             else {
                 this.makeMoveOnCurrentSide(stageMove);
@@ -769,17 +725,26 @@ public class SidebarImpl implements
         }
     }
 
-    private double getInScreenCoordinate(Side side, double coordinate) {
+    private double calculateInCenterCoordinateOf(Position.Relative relativePosition) {
+        if ( relativePosition.side().orientation.is(VERTICAL) ) {
+            return this.calculateRelativeY(relativePosition.place());
+        }
+        else {
+            return this.calculateRelativeX(relativePosition.place());
+        }
+    }
+
+    private double calculateShownCoordinateOf(Side side, double coordinate) {
         double validCoordinate = coordinate;
         double maxCoordinate;
 
         Side.Orientation orientation = side.orientation;
         switch ( orientation ) {
             case VERTICAL:
-                maxCoordinate = this.screen.height() - this.stage.getHeight();
+                maxCoordinate = this.calculateBottomShownY();
                 break;
             case HORIZONTAL:
-                maxCoordinate = this.screen.width() - this.stage.getWidth();
+                maxCoordinate = this.calculateRightShownX();
                 break;
             default:
                 throw orientation.unsupported();
@@ -791,22 +756,6 @@ public class SidebarImpl implements
 
         return validCoordinate;
     }
-
-//    private void onSessionActivated(String touchKind) {
-//        if ( nonEmpty(this.touchListener) ) {
-//            this.async.submit(() -> {
-//                for ( TouchListener touchListener : this.touchListener) {
-//                    try {
-//                        touchListener.onTouchedOf(touchKind);
-//                    }
-//                    catch (Throwable t) {
-//                        log.error(t.getMessage(), t);
-//                    }
-//                }
-//            });
-//        }
-//        this.showDock();
-//    }
 
     private void changeCurrentSideTo(Screen.Side newSide) {
         this.side.setValue(newSide);
@@ -821,10 +770,10 @@ public class SidebarImpl implements
                 stageMove.changeX(0);
                 break;
             case RIGHT:
-                stageMove.changeX(this.screen.width() - this.stage.getWidth());
+                stageMove.changeX(this.calculateRightShownX());
                 break;
             case BOTTOM:
-                stageMove.changeY(this.screen.height() - this.stage.getHeight());
+                stageMove.changeY(this.calculateBottomShownY());
                 break;
             default:
                 throw givenSide.unsupported();
@@ -860,7 +809,7 @@ public class SidebarImpl implements
                 else {
                     itemsView = this.itemsViewHorizontal;
                 }
-                itemsView.getChildren().addAll(this.itemNodes);
+                itemsView.getChildren().addAll(this.items.nodes());
 
                 this.sidebar.getChildren().setAll(itemsView);
                 break;
@@ -871,7 +820,7 @@ public class SidebarImpl implements
                 else {
                     itemsView = this.itemsViewVertical;
                 }
-                itemsView.getChildren().addAll(this.itemNodes);
+                itemsView.getChildren().addAll(this.items.nodes());
 
                 this.sidebar.getChildren().setAll(itemsView);
                 break;
@@ -893,24 +842,24 @@ public class SidebarImpl implements
                 });
     }
 
-    private void showDock() {
+    private void showSidebar() {
         this.sidebar.setVisible(true);
         this.stage.sizeToScene();
         this.showHideAnimation.show();
     }
 
-    private void tryHideDock() {
+    private void tryHideSidebar() {
         if ( this.sidebar.hoverProperty().get() ) {
-            this.session.touch(TOUCH_IS_MANUAL);
+            this.session.touch(MANUAL);
         }
         else {
-            this.hideDock();
+            this.hideSidebar();
         }
     }
 
-    private void hideDock() {
+    private void hideSidebar() {
         Platform.requestNextPulse();
-//        this.contextMenuDock.hide();
+        this.sidebarContextMenu.hide();
         this.stage.sizeToScene();
         this.showHideAnimation.hide();
     }
@@ -953,7 +902,7 @@ public class SidebarImpl implements
     }
 
     @Override
-    public ReadOnlyObjectProperty<Position> position() {
+    public ReadOnlyObjectProperty<Position.Current> position() {
         return this.position;
     }
 
@@ -1007,22 +956,6 @@ public class SidebarImpl implements
         return this.name;
     }
 
-//    @Override
-//    public Side side() {
-//        return this.side.get();
-//    }
-//
-//    @Override
-//    public double coordinate() {
-//        Side.Orientation orientation = this.side.get().orientation;
-//
-//        switch ( orientation ) {
-//            case VERTICAL: return this.stage.getY();
-//            case HORIZONTAL: return this.stage.getX();
-//            default: throw orientation.unsupported();
-//        }
-//    }
-
     private static class QueuedAction {
     }
 
@@ -1060,27 +993,46 @@ public class SidebarImpl implements
 
     private static class ProgrammaticMove extends QueuedAction {
 
+        final Position.Relative relativePosition;
         final Side to;
         final double coordinate;
 
         ProgrammaticMove(Side to, double coordinate) {
             this.to = to;
             this.coordinate = coordinate;
+            this.relativePosition = null;
         }
 
         ProgrammaticMove(double coordinate) {
             this.to = null;
             this.coordinate = coordinate;
+            this.relativePosition = null;
         }
 
-        boolean isSameSide() {
-            return isNull(this.to);
+        ProgrammaticMove(Position.Relative relativePosition) {
+            this.coordinate = Double.MIN_VALUE;
+            this.relativePosition = relativePosition;
+            this.to = relativePosition.side();
+        }
+
+        boolean sideIsSameAs(Side side) {
+            return isNull(this.to) || this.to.is(side);
+        }
+
+        boolean isRelative() {
+            return nonNull(this.relativePosition);
         }
     }
 
     @Override
     public void moveTo(Side offeredSide, double coordinateOnSide) {
         ProgrammaticMove programmaticMove = new ProgrammaticMove(offeredSide, coordinateOnSide);
+        queueAction(programmaticMove);
+    }
+
+    @Override
+    public void moveTo(Position.Relative relativePosition) {
+        ProgrammaticMove programmaticMove = new ProgrammaticMove(relativePosition);
         queueAction(programmaticMove);
     }
 
@@ -1101,8 +1053,7 @@ public class SidebarImpl implements
 
     private void process(QueuedAction queuedAction) {
         if ( queuedAction instanceof ItemsChange ) {
-            ((ItemsChange) queuedAction).mutation.accept(this.items);
-            this.itemsToNodes();
+            this.items.apply(((ItemsChange) queuedAction).mutation);
             this.rebuildItemsView();
         }
         else if ( queuedAction instanceof ProgrammaticMove) {
@@ -1147,8 +1098,74 @@ public class SidebarImpl implements
         Pane childrenView = (Pane) this.sidebar.getChildren().get(0);
         List<Node> currentItemNodes = childrenView.getChildren();
         currentItemNodes.clear();
-        currentItemNodes.addAll(this.itemNodes);
-        this.doAdjustmentInternalMove();
+        currentItemNodes.addAll(this.items.nodes());
+
+        this.adjustSizeAndPositioningAfterStageChange();
+    }
+
+    private void adjustSizeAndPositioningAfterStageChange() {
+        this.stage.sizeToScene();
+
+        Position.Relative relativePosition = this.relative.get();
+        boolean isShown = this.state.get().is(IS_SHOWN);
+
+        double x;
+        double y;
+
+        Side currentSide = this.side.get();
+
+        if ( nonNull(relativePosition) ) {
+            if ( isShown ) {
+                switch ( currentSide ) {
+                    case TOP:
+                        y = 0;
+                        x = this.calculateRelativeX(relativePosition.place());
+                        break;
+                    case LEFT:
+                        x = 0;
+                        y = this.calculateRelativeY(relativePosition.place());
+                        break;
+                    case RIGHT:
+                        x = this.calculateRightShownX();
+                        y = this.calculateRelativeY(relativePosition.place());
+                        break;
+                    case BOTTOM:
+                        x = this.calculateRelativeX(relativePosition.place());
+                        y = this.calculateBottomShownY();
+                        break;
+                    default:
+                        throw currentSide.unsupported();
+                }
+            }
+            else {
+                switch ( currentSide ) {
+                    case TOP:
+                        x = this.calculateRelativeX(relativePosition.place());
+                        y = this.calculateTopHiddenY();
+                        break;
+                    case LEFT:
+                        x = this.calculateLeftHiddenX();
+                        y = this.calculateRelativeY(relativePosition.place());
+                        break;
+                    case RIGHT:
+                        x = this.calculateRightHiddenX();
+                        y = this.calculateRelativeY(relativePosition.place());
+                        break;
+                    case BOTTOM:
+                        x = this.calculateRelativeX(relativePosition.place());
+                        y = this.calculateBottomHiddenY();
+                        break;
+                    default:
+                        throw currentSide.unsupported();
+                }
+            }
+        }
+        else {
+            x = this.stage.getX();
+            y = this.stage.getY();
+        }
+
+        this.doInternalMove(x, y, ADJUSTMENT_MOVE);
     }
 
     private void process(ProgrammaticMove move) {
@@ -1159,9 +1176,20 @@ public class SidebarImpl implements
         State state = this.state.get();
         if ( state.isInMove ) {
             this.queueAction(move);
+            return;
         }
 
+        boolean isRelativeMove = move.isRelative();
         double coordinate = move.coordinate;
+
+        if ( isRelativeMove ) {
+            log.info("[POSITION] relative - " + move.relativePosition);
+            this.relative.set(move.relativePosition);
+        }
+        else {
+            log.info("[POSITION] relative - NONE");
+            this.relative.set(null);
+        }
 
         double newX;
         double newY;
@@ -1169,16 +1197,28 @@ public class SidebarImpl implements
         double oldX = this.stage.getX();
         double oldY = this.stage.getY();
 
-        if ( move.isSameSide() ) {
-            Side.Orientation orientation = this.side.get().orientation;
+        Side currentSide = this.side.get();
+
+        if ( move.sideIsSameAs(currentSide) ) {
+            Side.Orientation orientation = currentSide.orientation;
 
             switch ( orientation ) {
                 case VERTICAL:
+                    if ( isRelativeMove ) {
+                        newY = this.calculateRelativeY(move.relativePosition.place());
+                    }
+                    else {
+                        newY = coordinate;
+                    }
                     newX = oldX;
-                    newY = coordinate;
                     break;
                 case HORIZONTAL:
-                    newX = coordinate;
+                    if ( isRelativeMove ) {
+                        newX = this.calculateRelativeX(move.relativePosition.place());
+                    }
+                    else {
+                        newX = coordinate;
+                    }
                     newY = oldY;
                     break;
                 default:
@@ -1188,47 +1228,118 @@ public class SidebarImpl implements
         else {
             Side newSide = move.to;
             boolean isShown = state.is(IS_SHOWN);
+            boolean areOldNewOrientationSame = currentSide.orientation.is(newSide.orientation);
 
             switch ( newSide ) {
                 case TOP:
-                    newX = coordinate;
+                    if ( isRelativeMove ) {
+                        if ( areOldNewOrientationSame ) {
+                            newX = this.calculateRelativeX(move.relativePosition.place());
+                        }
+                        else {
+                            newX = this.calculateRelativeXOppositeOrientation(move.relativePosition.place());
+                        }
+                    }
+                    else {
+                        newX = coordinate;
+                    }
 
                     if ( isShown ) {
                         newY = 0;
                     }
                     else {
-                        newY = this.calculateTopHiddenY();
+                        if ( areOldNewOrientationSame ) {
+                            newY = this.calculateTopHiddenY();
+                        }
+                        else {
+                            newY = this.calculateTopHiddenYOppositeOrientation();
+                        }
                     }
 
                     break;
                 case LEFT:
-                    newY = coordinate;
+                    if ( isRelativeMove ) {
+                        if ( areOldNewOrientationSame ) {
+                            newY = this.calculateRelativeY(move.relativePosition.place());
+                        }
+                        else {
+                            newY = this.calculateRelativeYOppositeOrientation(move.relativePosition.place());
+                        }
+                    }
+                    else {
+                        newY = coordinate;
+                    }
 
                     if ( isShown ) {
                         newX = 0;
                     }
                     else {
-                        newX = this.calculateLeftHiddenX();
+                        if ( areOldNewOrientationSame ) {
+                            newX = this.calculateLeftHiddenX();
+                        }
+                        else {
+                            newX = this.calculateLeftHiddenXOppositeOrientation();
+                        }
                     }
                     break;
                 case RIGHT:
-                    newY = coordinate;
-
-                    if ( isShown ) {
-                        newX = this.screen.width() - this.stage.getWidth();
+                    if ( isRelativeMove ) {
+                        if ( areOldNewOrientationSame ) {
+                            newY = this.calculateRelativeY(move.relativePosition.place());
+                        }
+                        else {
+                            newY = this.calculateRelativeYOppositeOrientation(move.relativePosition.place());
+                        }
                     }
                     else {
-                        newX = this.calculateRightHiddenX();
+                        newY = coordinate;
+                    }
+
+                    if ( isShown ) {
+                        if ( areOldNewOrientationSame ) {
+                            newX = this.calculateRightShownX();
+                        }
+                        else {
+                            newX = this.calculateRightShownXOppositeOrientation();
+                        }
+                    }
+                    else {
+                        if ( areOldNewOrientationSame ) {
+                            newX = this.calculateRightHiddenX();
+                        }
+                        else {
+                            newX = this.calculateRightHiddenXOppositeOrientation();
+                        }
                     }
                     break;
                 case BOTTOM:
-                    newX = coordinate;
-
-                    if ( isShown ) {
-                        newY = this.screen.height() - this.stage.getHeight();
+                    if ( isRelativeMove ) {
+                        if ( areOldNewOrientationSame ) {
+                            newX = this.calculateRelativeX(move.relativePosition.place());
+                        }
+                        else {
+                            newX = this.calculateRelativeXOppositeOrientation(move.relativePosition.place());
+                        }
                     }
                     else {
-                        newY = this.calculateBottomHiddenY();
+                        newX = coordinate;
+                    }
+
+                    if ( isShown ) {
+                        if ( areOldNewOrientationSame ) {
+                            newY = this.calculateBottomShownY();
+                        }
+                        else {
+                            newY = this.calculateBottomShownYOppositeOrientation();
+                        }
+                    }
+                    else {
+                        if ( areOldNewOrientationSame ) {
+                            newY = this.calculateBottomHiddenY();
+                        }
+                        else {
+                            newY = this.calculateBottomHiddenYOppositeOrientation();
+                        }
                     }
                     break;
                 default:
@@ -1237,6 +1348,50 @@ public class SidebarImpl implements
         }
 
         this.doInternalMove(newX, newY, PROGRAMMATIC_INSTANT_MOVE);
+    }
+
+    private double calculateRightShownX() {
+        return this.screen.width() - this.stage.getWidth();
+    }
+
+    private double calculateRightShownXOppositeOrientation() {
+        return this.screen.width() - this.stage.getHeight();
+    }
+
+    private double calculateBottomShownY() {
+        return this.screen.height() - this.stage.getHeight();
+    }
+
+    private double calculateBottomShownYOppositeOrientation() {
+        return this.screen.height() - this.stage.getWidth();
+    }
+
+    private double calculateRelativeX(Sidebar.Position.Relative.Place relativePlace) {
+        switch ( relativePlace ) {
+            case CENTER: return (this.screen.width() - this.stage.getWidth()) / 2;
+            default: throw  relativePlace.unsupported();
+        }
+    }
+
+    private double calculateRelativeXOppositeOrientation(Sidebar.Position.Relative.Place relativePlace) {
+        switch ( relativePlace ) {
+            case CENTER: return (this.screen.width() - this.stage.getHeight()) / 2;
+            default: throw  relativePlace.unsupported();
+        }
+    }
+
+    private double calculateRelativeY(Sidebar.Position.Relative.Place relativePlace) {
+        switch ( relativePlace ) {
+            case CENTER: return (this.screen.height() - this.stage.getHeight()) / 2;
+            default: throw  relativePlace.unsupported();
+        }
+    }
+
+    private double calculateRelativeYOppositeOrientation(Sidebar.Position.Relative.Place relativePlace) {
+        switch ( relativePlace ) {
+            case CENTER: return (this.screen.height() - this.stage.getWidth()) / 2;
+            default: throw  relativePlace.unsupported();
+        }
     }
 
     private void doInternalMove(double newX, double newY, String move) {
@@ -1256,7 +1411,15 @@ public class SidebarImpl implements
         return 0 + this.hiddenArea.insetOf(TOP) - this.stage.getHeight();
     }
 
+    private double calculateTopHiddenYOppositeOrientation() {
+        return 0 + this.hiddenArea.insetOf(TOP) - this.stage.getWidth();
+    }
+
     private double calculateBottomHiddenY() {
+        return this.screen.height() + this.hiddenArea.insetOf(BOTTOM);
+    }
+
+    private double calculateBottomHiddenYOppositeOrientation() {
         return this.screen.height() + this.hiddenArea.insetOf(BOTTOM);
     }
 
@@ -1264,7 +1427,15 @@ public class SidebarImpl implements
         return 0 + this.hiddenArea.insetOf(LEFT) - this.stage.getWidth();
     }
 
+    private double calculateLeftHiddenXOppositeOrientation() {
+        return 0 + this.hiddenArea.insetOf(LEFT) - this.stage.getHeight();
+    }
+
     private double calculateRightHiddenX() {
+        return this.screen.width() + this.hiddenArea.insetOf(RIGHT);
+    }
+
+    private double calculateRightHiddenXOppositeOrientation() {
         return this.screen.width() + this.hiddenArea.insetOf(RIGHT);
     }
 
@@ -1275,7 +1446,7 @@ public class SidebarImpl implements
 
     @Override
     public List<Item> all() {
-        return unmodifiableList(this.items);
+        return this.items.unmodifiableList();
     }
 
     @Override
@@ -1329,12 +1500,12 @@ public class SidebarImpl implements
     }
 
     @Override
-    public void add(TouchListener touchListener) {
+    public void add(Touch.Listener touchListener) {
         this.session.add(touchListener);
     }
 
     @Override
-    public boolean remove(TouchListener touchListener) {
+    public boolean remove(Touch.Listener touchListener) {
         return this.session.remove(touchListener);
     }
 }

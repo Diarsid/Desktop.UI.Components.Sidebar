@@ -6,12 +6,12 @@ import diarsid.desktop.ui.geometry.Rectangle;
 
 import static java.util.Objects.requireNonNull;
 
-public class RealPosition implements Sidebar.Position {
+public class AbsolutePosition implements Sidebar.Position.Absolute {
 
     private final Rectangle.Side side;
     private final double coordinate;
 
-    public RealPosition(Rectangle.Side side, double coordinate) {
+    public AbsolutePosition(Rectangle.Side side, double coordinate) {
         requireNonNull(side);
         this.side = side;
         this.coordinate = coordinate;
@@ -30,8 +30,8 @@ public class RealPosition implements Sidebar.Position {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof RealPosition)) return false;
-        RealPosition that = (RealPosition) o;
+        if (!(o instanceof AbsolutePosition)) return false;
+        AbsolutePosition that = (AbsolutePosition) o;
         return Double.compare(that.coordinate, coordinate) == 0 &&
                 side == that.side;
     }

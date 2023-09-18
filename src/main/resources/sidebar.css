@@ -105,3 +105,23 @@
 .sidebar-item-label-c {
     -fx-background-color: magenta;
 }
+
+.context-menu {
+    -fx-background-color: violet;
+}
+
+.sidebar-context-menu {
+    -fx-background-color: lightblue;
+}
+
+.sidebar-context-item-submenu-item {
+    -fx-background-color: lime;
+}
+
+/*.sidebar-context-menu-item {*/
+/*    -fx-background-color: lime;*/
+/*}*/
+
+/*.sidebar-context-menu .sidebar-context-item-submenu {*/
+/*    -fx-background-color: turquoise;*/
+/*}*/

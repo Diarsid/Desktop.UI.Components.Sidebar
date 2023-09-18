@@ -1,12 +1,15 @@
 package diarsid.desktop.ui.components.sidebar.api;
 
 import java.io.Closeable;
+import java.io.Serializable;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
+import javafx.scene.control.MenuItem;
 
 import diarsid.desktop.ui.components.sidebar.impl.SidebarImpl;
 import diarsid.desktop.ui.geometry.Rectangle;
@@ -16,7 +19,16 @@ import diarsid.support.javafx.PlatformActions;
 import diarsid.support.javafx.components.Movable;
 import diarsid.support.javafx.components.Visible;
 import diarsid.support.model.Named;
+import diarsid.support.model.Unique;
 import diarsid.support.objects.CommonEnum;
+
+import static java.util.Collections.emptyList;
+
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.Place.CENTER;
+import static diarsid.desktop.ui.geometry.Rectangle.Side.BOTTOM;
+import static diarsid.desktop.ui.geometry.Rectangle.Side.LEFT;
+import static diarsid.desktop.ui.geometry.Rectangle.Side.RIGHT;
+import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
 
 public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBearer {
 
@@ -26,7 +38,9 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
             BooleanProperty isPinned,
             NamedThreadSource namedThreadSource,
             Items.Alignment itemsAlignment,
-            Supplier<List<Item>> initialItems) {
+            Supplier<List<Item>> initialItems,
+            double showTime,
+            double hideTime) {
         return PlatformActions.doGet(() -> {
             return new SidebarImpl(
                     name,
@@ -34,7 +48,9 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
                     isPinned,
                     namedThreadSource,
                     itemsAlignment,
-                    initialItems);
+                    initialItems,
+                    showTime,
+                    hideTime);
         });
     }
 
@@ -54,7 +70,7 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
         }
     }
 
-    ReadOnlyObjectProperty<Position> position();
+    ReadOnlyObjectProperty<Position.Current> position();
 
     ReadOnlyObjectProperty<State> state();
 
@@ -63,11 +79,51 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
     @Override
     void close(); // override for not throwing IOException
 
-    interface Position {
+    interface Position extends Serializable {
+
+        interface Current extends Absolute {
+
+            boolean hasRelative();
+
+            Relative relativeOrThrow();
+        }
+
+        enum Relative implements Position, CommonEnum<Relative> {
+
+            TOP_CENTER(TOP, CENTER),
+            RIGHT_CENTER(RIGHT, CENTER),
+            BOTTOM_CENTER(BOTTOM, CENTER),
+            LEFT_CENTER(LEFT, CENTER);
+
+            public static enum Place implements CommonEnum<Place> {
+                CENTER;
+            }
+
+            Relative(Side side, Place place) {
+                this.side = side;
+                this.place = place;
+            }
+
+            private final Side side;
+            private final Place place;
+
+
+            @Override
+            public Side side() {
+                return this.side;
+            }
+
+            public Place place() {
+                return this.place;
+            }
+        }
+
+        interface Absolute extends Position {
+
+            double coordinate();
+        }
 
         Rectangle.Side side();
-
-        double coordinate();
 
     }
 
@@ -82,7 +138,9 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
         void moveTo(Rectangle.Side side, double coordinateOnSide);
 
-        default void moveTo(Position position) {
+        void moveTo(Position.Relative relativePosition);
+
+        default void moveTo(Position.Absolute position) {
             this.moveTo(position.side(), position.coordinate());
         }
 
@@ -95,8 +153,9 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
     interface Items {
 
         enum Alignment implements CommonEnum<Alignment> {
+
             PARALLEL_TO_SIDE,
-            PERPENDICULAR_TO_SIDE
+            PERPENDICULAR_TO_SIDE;
         }
 
         Items.Alignment itemsAlignment();
@@ -110,22 +169,27 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
         /*
          * Passes actual modifiable list of Items.
          * All changes made to passed list will be reflected on sidebar when method returns.
-         * It is possible to change items completely or even remove all ot them using this method.
-         *
-         *
+         * It is possible to change items completely or even remove all ot them using this method.         *
          */
         void change(Consumer<List<Item>> allItemsToChange);
 
     }
 
-    interface Item extends Named, Visible {
+    interface Item extends Unique, Named, Visible, Runnable {
 
+        default List<MenuItem> itemsContextMenuItems() {
+            return emptyList();
+        }
+
+        default void onThrownInRun(Throwable t) {
+            // for override
+        }
     }
 
     /*
      * All methods of this interface are meant to be executed asynchronously.
      * Method invocation only issue a command to underlying component but do not wait for completion and returns
-     * before actual action will be completed or even before it will actually begin
+     * before actual action will be completed or even before it will actually begin.
      *
      * Session is an abstraction that represents a some period of time when user interacts with sidebar as with
      * desktop UI. User's mouse entering the sidebar is considered as 'touch' and can be imitated with .touch()
@@ -171,16 +235,24 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
         boolean hasBlock(String name);
 
-        void add(TouchListener touchListener);
+        void add(Touch.Listener touchListener);
 
-        boolean remove(TouchListener touchListener);
+        boolean remove(Touch.Listener touchListener);
 
-        interface TouchListener {
+        interface Touch {
 
-            String TOUCH_IS_MANUAL = "TOUCH_IS_MANUAL";
-            String TOUCH_IS_PROGRAMMATICAL = "TOUCH_IS_PROGRAMMATICAL";
+            interface Kind {
 
-            void onTouchedOf(String touchKind);
+                String MANUAL = "TOUCH_IS_MANUAL";
+                String PROGRAMMATICAL = "TOUCH_IS_PROGRAMMATICAL";
+
+            }
+
+            interface Listener {
+
+                void onTouchedOf(String touchKind);
+
+            }
         }
     }
 
