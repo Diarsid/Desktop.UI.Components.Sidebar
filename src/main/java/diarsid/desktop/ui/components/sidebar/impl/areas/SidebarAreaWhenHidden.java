@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidebar.impl.areas;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.geometry.Insets;
@@ -65,7 +65,7 @@ public class SidebarAreaWhenHidden extends SidebarStagePropertiesListener implem
                 mutableSize(initialWidth, initialHeight));
     }
 
-    double insetOf(Side side) {
+    public double insetOf(Side side) {
         switch ( side ) {
             case TOP: return this.insets.getTop();
             case LEFT: return this.insets.getLeft();

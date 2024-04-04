@@ -16,8 +16,11 @@ import java.util.function.Supplier;
 
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.ReadOnlyIntegerProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
+import javafx.beans.property.SimpleIntegerProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
@@ -34,12 +37,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaForTouch;
+import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaWhenHidden;
+import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaWhenShown;
 import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarContextMenu;
 import diarsid.desktop.ui.components.sidebar.impl.items.SidebarItems;
 import diarsid.desktop.ui.geometry.Anchor;
-import diarsid.desktop.ui.geometry.PointToCorner;
+import diarsid.desktop.ui.geometry.PointToSide;
 import diarsid.desktop.ui.geometry.Rectangle;
 import diarsid.desktop.ui.geometry.Size;
+import diarsid.desktop.ui.mouse.watching.MouseWatcher;
 import diarsid.desktop.ui.mouse.watching.Watch;
 import diarsid.support.concurrency.BlockingPermission;
 import diarsid.support.concurrency.threads.NamedThreadSource;
@@ -49,6 +56,7 @@ import diarsid.support.javafx.stage.HiddenStages;
 import diarsid.support.javafx.stage.StageMoving;
 import diarsid.support.objects.CommonEnum;
 
+import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
@@ -56,8 +64,10 @@ import static java.util.Objects.nonNull;
 import static javafx.css.PseudoClass.getPseudoClass;
 import static javafx.scene.input.MouseEvent.MOUSE_PRESSED;
 
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Behavior.Type.INSTANT;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PARALLEL_TO_SIDE;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.MANUAL;
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.PROGRAMMATICAL;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDDEN;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDING;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_SHOWING;
@@ -65,7 +75,6 @@ import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_SHOWN;
 import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.BLOCK;
 import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.TOUCH_AND_BLOCK;
 import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.UNBLOCK;
-import static diarsid.desktop.ui.geometry.Rectangle.Area.CENTRAL;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.BOTTOM;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.LEFT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.Orientation.HORIZONTAL;
@@ -80,6 +89,7 @@ public class SidebarImpl implements
         Sidebar.Control,
         Sidebar.Items,
         Sidebar.Session,
+        Sidebar.OnTouchDelay,
         Anchor,
         Size {
 
@@ -140,12 +150,10 @@ public class SidebarImpl implements
 
     private final ObjectProperty<Position.Relative> relative;
 
-    public final ObjectProperty<Rectangle.Side> side;
-    public final SidebarSession session;
+    private final ObjectProperty<Rectangle.Side> side;
+    private final SidebarSession session;
 
     private final SidebarItems items;
-
-    private Screen.Side initialSide;
 
     private final HBox itemsViewHorizontal;
     private final VBox itemsViewVertical;
@@ -156,13 +164,17 @@ public class SidebarImpl implements
 
     private final SidebarContextMenu sidebarContextMenu;
 
-    public final Watch watch;
-    private final ShowHideAnimation showHideAnimation;
+    private final MouseWatcher mouseWatcher;
+    private final SidebarMouseWatch watch;
+
+    private final ShowHideBehavior showHide;
 
     private final BlockingQueue<QueuedAction> queuedActions;
     private final BlockingPermission queueActionBlockingPermission;
     private final ExecutorService asyncQueuedActions;
     private final Future<?> asyncQueuedActionsProcessing;
+
+    private final IntegerProperty onTouchDelayMillis;
 
     public SidebarImpl(
             String name,
@@ -171,8 +183,9 @@ public class SidebarImpl implements
             NamedThreadSource namedThreadSource,
             Items.Alignment itemsAlignment,
             Supplier<List<Item>> initialItems,
-            double showTime,
-            double hideTime) {
+            Behavior.Show show,
+            Behavior.Hide hide,
+            MouseWatcher mouseWatcher) {
 
         this.name = name;
         this.state = new SimpleObjectProperty<>();
@@ -190,8 +203,7 @@ public class SidebarImpl implements
 
         this.screen = Screen.screenOf(PHYSICAL);
 
-        this.initialSide = position.side();
-        this.side = new SimpleObjectProperty<>(this.initialSide);
+        this.side = new SimpleObjectProperty<>(position.side());
 
         this.side.addListener((prop, oldSide, newSide) -> {
             if ( oldSide.is(newSide) ) {
@@ -221,17 +233,18 @@ public class SidebarImpl implements
         this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, true);
         this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_HORIZONTAL, false);
 
-        this.applyPseudoClass(this.initialSide);
+        this.applyPseudoClass(this.side.get());
 
-        this.sidebarContextMenu = new SidebarContextMenu(this::moveTo);
+        this.sidebarContextMenu = new SidebarContextMenu(this.isPinned, this::moveTo);
         this.sidebarContextMenu.setAutoHide(true);
 
         this.sidebar.addEventHandler(MOUSE_PRESSED, event -> {
-            this.sidebarContextMenu.removeSelectedItemSubmenu();
             if ( event.isPrimaryButtonDown() ) {
+                this.sidebarContextMenu.removeSelectedItemSubmenu();
                 this.sidebarContextMenu.hide();
             }
             else if ( event.isSecondaryButtonDown() ) {
+                this.sidebarContextMenu.removeSelectedItemSubmenu();
                 this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
             }
         });
@@ -242,7 +255,7 @@ public class SidebarImpl implements
         this.items = new SidebarItems(
                 initialItems,
                 (prop, oldV, newV) -> {
-                    Platform.runLater(this::adjustSizeAndPositioningAfterStageChange);
+                    Platform.runLater(() -> this.adjustSizeAndPositioningAfterStageChange("RESIZE"));
                 },
                 this.sidebarContextMenu::hide,
                 (event, itemSubMenu) -> {
@@ -250,13 +263,13 @@ public class SidebarImpl implements
                     this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
                 });
 
-        this.arrangeView(this.initialSide);
+        this.arrangeView(this.side.get());
 
         this.session = new SidebarSession(
                 this.name,
                 500,
                 namedThreadSource,
-                (touckKind) -> this.showSidebar(),
+                (touchKind) -> this.showSidebar(),
                 this::tryHideSidebar,
                 this::canFinishSession);
 
@@ -282,11 +295,13 @@ public class SidebarImpl implements
                         return;
                     }
 
+                    if ( behavior.equals(ADJUSTMENT_MOVE) ) {
+                        return;
+                    }
+
                     boolean stageIsOnScreen = this.screen.contains(
                             this.stage.getX(),
-                            this.stage.getY(),
-                            this.stage.getWidth(),
-                            this.stage.getHeight());
+                            this.stage.getY());
 
                     if ( stageIsOnScreen ) {
                         this.interceptOnScreenMove(behavior, stageMove, pointerMove);
@@ -349,13 +364,11 @@ public class SidebarImpl implements
             }
         });
 
-        this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
-
         this.stage.setScene(scene);
         this.stage.sizeToScene();
 
-        this.stage.setX(this.hiddenArea.x.get());
-        this.stage.setY(this.hiddenArea.y.get());
+//        this.stage.setX(this.hiddenArea.x.get());
+//        this.stage.setY(this.hiddenArea.y.get());
 
         this.stage.show();
 
@@ -365,20 +378,20 @@ public class SidebarImpl implements
 
         double coordinate;
         if ( position instanceof Position.Absolute) {
-            coordinate = calculateShownCoordinateOf(this.initialSide, ((Position.Absolute) position).coordinate());
+            coordinate = calculateShownCoordinateOf(this.side.get(), ((Position.Absolute) position).coordinate());
             log.info("[POSITION] relative - NONE");
             this.relative.set(null);
-            this.position.set(new CurrentPosition(this.initialSide, coordinate));
+            this.position.set(new CurrentPosition(this.side.get(), coordinate));
         }
         else {
             Position.Relative relativePosition = (Position.Relative) position;
             coordinate = calculateInCenterCoordinateOf(relativePosition);
             log.info("[POSITION] relative - " + relativePosition);
             this.relative.set(relativePosition);
-            this.position.set(new CurrentPosition(this.initialSide, coordinate, relativePosition));
+            this.position.set(new CurrentPosition(this.side.get(), coordinate, relativePosition));
         }
 
-        switch ( this.initialSide ) {
+        switch ( this.side.get() ) {
             case TOP:
                 stage.setY(0);
                 stage.setX(coordinate);
@@ -396,27 +409,17 @@ public class SidebarImpl implements
                 stage.setX(coordinate);
                 break;
             default:
-                throw this.initialSide.unsupported();
+                throw this.side.get().unsupported();
         }
 
+        this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
         this.touchArea = new SidebarAreaForTouch(this.screen, this.stage, this.side);
         this.shownArea = new SidebarAreaWhenShown(this.screen, this.stage, this.side);
 
-        this.watch = new Watch(
-                "Dock:" + this.name,
-                (point) -> {
-                    return this.touchArea.contains(point.x, point.y);
-                },
-                (point, isActive) -> {
-                    if ( isActive ) {
-                        try {
-                            Platform.runLater(manualTouchSession);
-                        }
-                        catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
+        this.onTouchDelayMillis = new SimpleIntegerProperty(0);
+
+        this.watch = new SidebarMouseWatch(
+                this.name, this.touchArea, manualTouchSession, namedThreadSource, this.onTouchDelayMillis);
 
         CyclicBarrier actionOnPlatformExecution = new CyclicBarrier(2);
         this.queuedActions = new ArrayBlockingQueue<>(10, true);
@@ -463,9 +466,9 @@ public class SidebarImpl implements
 
         this.asyncQueuedActionsProcessing = this.asyncQueuedActions.submit(processQueuedActionsInLoop);
 
-        this.showHideAnimation = new ShowHideAnimation(
-                hideTime,
-                showTime,
+        this.showHide = new ShowHideAnimation(
+                show,
+                hide,
                 /* get hidden coordinate */ () -> {
                     if ( this.side.get().orientation.is(VERTICAL) ) {
                         return this.hiddenArea.anchor().x();
@@ -518,7 +521,18 @@ public class SidebarImpl implements
 
         this.state.set(IS_HIDDEN);
 
-//        this.session.touch(PROGRAMMATICAL);
+        long initialTouchMillis;
+        if ( show.is(INSTANT) ) {
+            initialTouchMillis = 2000;
+        }
+        else {
+            initialTouchMillis = (long) (show.seconds * 1000) + 1000;
+        }
+
+        this.session.touchAndBlock(PROGRAMMATICAL, "INITIAL_SHOW", initialTouchMillis);
+
+        this.mouseWatcher = mouseWatcher;
+        this.mouseWatcher.add(this);
     }
 
     private void blockSessionByContextMenu(WindowEvent event) {
@@ -529,7 +543,10 @@ public class SidebarImpl implements
         this.session.unblock("CONTEXT_MENU");
     }
 
-    private void interceptOutOfScreenMove(String behavior, StageMoving.Move.Changeable stageMove, StageMoving.Move pointerMove) {
+    private void interceptOutOfScreenMove(
+            String behavior,
+            StageMoving.Move.Changeable stageMove,
+            StageMoving.Move pointerMove) {
         if ( this.isPinned.get()  && ! behavior.equals(ADJUSTMENT_MOVE) ) {
             stageMove.setIgnore(true);
             return;
@@ -646,7 +663,19 @@ public class SidebarImpl implements
         }
     }
 
-    private void interceptOnScreenMove(String behavior, StageMoving.Move.Changeable stageMove, StageMoving.Move pointerMove) {
+    private double distanceFromScreenSide() {
+        if ( this.side.get().orientation.is(VERTICAL) ) {
+            return this.stage.getWidth();
+        }
+        else {
+            return this.stage.getHeight();
+        }
+    }
+
+    private void interceptOnScreenMove(
+            String behavior,
+            StageMoving.Move.Changeable stageMove,
+            StageMoving.Move pointerMove) {
         if ( this.isPinned.get() && ! behavior.equals(ADJUSTMENT_MOVE) ) {
             stageMove.setIgnore(true);
             return;
@@ -654,19 +683,28 @@ public class SidebarImpl implements
 
         double height = this.stage.getHeight();
         double width = this.stage.getWidth();
+        Rectangle.Side currentSide = this.side.get();
+
+        double screenWidth = this.screen.width();
+        double screenHeight = this.screen.height();
+
+        double activeAreaAround = min(height, width);
+
+        double distanceFromScreenSide;
+        double activeDistanceFromScreenSide;
 
         double y = stageMove.y();
         if ( y < 0 ) {
             y = 0;
             stageMove.changeY(y);
         }
-        if ( y > this.screen.height() ) {
-            y = this.screen.height();
+        if ( y > screenHeight ) {
+            y = screenHeight;
             stageMove.changeY(y);
         }
 
-        if ( y + height > this.screen.height() ) {
-            y = this.screen.height() - height;
+        if ( y + height > screenHeight ) {
+            y = screenHeight - height;
             stageMove.changeY(y);
         }
 
@@ -675,54 +713,83 @@ public class SidebarImpl implements
             x = 0;
             stageMove.changeX(x);
         }
-        if ( x > this.screen.width() ) {
-            x = this.screen.width();
+        if ( x > screenWidth ) {
+            x = screenWidth;
             stageMove.changeX(x);
         }
 
-        if ( x + width > this.screen.width() ) {
-            x = this.screen.width() - width;
+        if ( x + width > screenWidth ) {
+            x = screenWidth - width;
             stageMove.changeX(x);
         }
 
-        Rectangle.Area area = this.screen.areaOf(pointerMove, Rectangle.Corner.TOP_RIGHT);
-
-        if ( area != CENTRAL ) {
-            Rectangle.Side currentSide = this.side.get();
-            if ( ! area.equals(currentSide) ) {
-                if ( area instanceof Rectangle.Corner ) {
-                    PointToCorner distance = this.screen.pointToCorner(
-                            (Rectangle.Corner) area, pointerMove);
-                    Rectangle.Side closerSide = distance.closerSide();
-                    if ( closerSide.is(currentSide) ) {
-                        this.makeMoveOnCurrentSide(stageMove);
-                    }
-                    else {
-                        this.makeMoveTo(closerSide, stageMove);
-                    }
-                }
-                else if ( area instanceof Rectangle.Side ) {
-                    Rectangle.Side nextSide = (Rectangle.Side) area;
-                    this.makeMoveTo(nextSide, stageMove);
-                }
-                else if ( area instanceof OutsideToSide ) {
-                    Rectangle.Side nextSide = ((OutsideToSide) area).side;
-                    this.makeMoveTo(nextSide, stageMove);
-                }
-                else if ( area instanceof OutsideToCorner ) {
-                    throw new UnsupportedLogicException();
-                }
-                else {
-                    throw new UnsupportedLogicException();
-                }
-            }
-            else {
-                this.makeMoveOnCurrentSide(stageMove);
+        if ( currentSide.orientation.is(VERTICAL) ) {
+            distanceFromScreenSide = width;
+            activeDistanceFromScreenSide = distanceFromScreenSide + activeAreaAround;
+            if ( activeDistanceFromScreenSide > screenWidth/2 ) {
+                activeDistanceFromScreenSide = screenWidth/2;
             }
         }
         else {
+            distanceFromScreenSide = height;
+            activeDistanceFromScreenSide = distanceFromScreenSide + activeAreaAround;
+            if ( activeDistanceFromScreenSide > screenHeight/2 ) {
+                activeDistanceFromScreenSide = screenHeight/2;
+            }
+        }
+
+        PointToSide pointToSide = this.screen.pointToSideInside(pointerMove);
+
+        if ( pointToSide.distance() > activeDistanceFromScreenSide ) {
             stageMove.setIgnore(true);
         }
+        else {
+            Rectangle.Side nextSide = pointToSide.side();
+            if ( nextSide.is(currentSide) ) {
+                this.makeMoveOnCurrentSide(stageMove);
+            }
+            else {
+                this.makeMoveTo(nextSide, stageMove);
+            }
+        }
+
+//        Rectangle.Area area = this.screen.areaOf(pointerMove, Rectangle.Corner.TOP_RIGHT);
+//
+//        if ( area != CENTRAL ) {
+//            if ( ! area.equals(currentSide) ) {
+//                if ( area instanceof Rectangle.Corner ) {
+//                    PointToCorner distance = this.screen.pointToCorner(
+//                            (Rectangle.Corner) area, pointerMove);
+//                    Rectangle.Side closerSide = distance.closerSide();
+//                    if ( closerSide.is(currentSide) ) {
+//                        this.makeMoveOnCurrentSide(stageMove);
+//                    }
+//                    else {
+//                        this.makeMoveTo(closerSide, stageMove);
+//                    }
+//                }
+//                else if ( area instanceof Rectangle.Side ) {
+//                    Rectangle.Side nextSide = (Rectangle.Side) area;
+//                    this.makeMoveTo(nextSide, stageMove);
+//                }
+//                else if ( area instanceof OutsideToSide ) {
+//                    Rectangle.Side nextSide = ((OutsideToSide) area).side;
+//                    this.makeMoveTo(nextSide, stageMove);
+//                }
+//                else if ( area instanceof OutsideToCorner ) {
+//                    throw new UnsupportedLogicException();
+//                }
+//                else {
+//                    throw new UnsupportedLogicException();
+//                }
+//            }
+//            else {
+//                this.makeMoveOnCurrentSide(stageMove);
+//            }
+//        }
+//        else {
+//            stageMove.setIgnore(true);
+//        }
     }
 
     private double calculateInCenterCoordinateOf(Position.Relative relativePosition) {
@@ -845,7 +912,7 @@ public class SidebarImpl implements
     private void showSidebar() {
         this.sidebar.setVisible(true);
         this.stage.sizeToScene();
-        this.showHideAnimation.show();
+        this.showHide.show();
     }
 
     private void tryHideSidebar() {
@@ -861,7 +928,7 @@ public class SidebarImpl implements
         Platform.requestNextPulse();
         this.sidebarContextMenu.hide();
         this.stage.sizeToScene();
-        this.showHideAnimation.hide();
+        this.showHide.hide();
     }
 
     private boolean canFinishSession() {
@@ -932,6 +999,11 @@ public class SidebarImpl implements
     }
 
     @Override
+    public OnTouchDelay onTouchDelay() {
+        return this;
+    }
+
+    @Override
     public Anchor anchor() {
         return this;
     }
@@ -954,6 +1026,22 @@ public class SidebarImpl implements
     @Override
     public String name() {
         return this.name;
+    }
+
+    @Override
+    public void set(ReadOnlyIntegerProperty millis) {
+        this.onTouchDelayMillis.unbind();
+        this.onTouchDelayMillis.bind(millis);
+    }
+
+    @Override
+    public long getOrZero() {
+        return this.onTouchDelayMillis.get();
+    }
+
+    @Override
+    public boolean isSet() {
+        return this.onTouchDelayMillis.get() > 0;
     }
 
     private static class QueuedAction {
@@ -984,10 +1072,18 @@ public class SidebarImpl implements
 
         final Type type;
         final String name;
+        final long millisBlockToLive;
 
         NamedTypedSessionAction(Type type, String name) {
             this.type = type;
             this.name = name;
+            this.millisBlockToLive = -1;
+        }
+
+        NamedTypedSessionAction(Type type, String name, long millisBlockToLive) {
+            this.type = type;
+            this.name = name;
+            this.millisBlockToLive = millisBlockToLive;
         }
     }
 
@@ -1043,6 +1139,7 @@ public class SidebarImpl implements
     }
 
     private void queueAction(QueuedAction queuedAction) {
+        System.out.println("queue");
         try {
             this.queuedActions.put(queuedAction);
         }
@@ -1065,10 +1162,20 @@ public class SidebarImpl implements
                 String name = namedSessionAction.name;
                 switch ( namedSessionAction.type ) {
                     case TOUCH_AND_BLOCK:
-                        this.session.touchAndBlock(name);
+                        if ( namedSessionAction.millisBlockToLive > 0 ) {
+                            this.session.touchAndBlock(name, namedSessionAction.millisBlockToLive);
+                        }
+                        else {
+                            this.session.touchAndBlock(name);
+                        }
                         break;
                     case BLOCK:
-                        this.session.block(name);
+                        if ( namedSessionAction.millisBlockToLive > 0 ) {
+                            this.session.block(name, namedSessionAction.millisBlockToLive);
+                        }
+                        else {
+                            this.session.block(name);
+                        }
                         break;
                     case UNBLOCK:
                         this.session.unblock(name);
@@ -1100,10 +1207,10 @@ public class SidebarImpl implements
         currentItemNodes.clear();
         currentItemNodes.addAll(this.items.nodes());
 
-        this.adjustSizeAndPositioningAfterStageChange();
+        this.adjustSizeAndPositioningAfterStageChange("ITEMS CHANGE");
     }
 
-    private void adjustSizeAndPositioningAfterStageChange() {
+    private void adjustSizeAndPositioningAfterStageChange(String reason) {
         this.stage.sizeToScene();
 
         Position.Relative relativePosition = this.relative.get();
@@ -1113,6 +1220,12 @@ public class SidebarImpl implements
         double y;
 
         Side currentSide = this.side.get();
+
+        boolean doMove = true;
+
+        final int effectivelyIgnored = -1;
+        final double existingX = this.stage.getX();
+        final double existingY = this.stage.getY();
 
         if ( nonNull(relativePosition) ) {
             if ( isShown ) {
@@ -1161,11 +1274,58 @@ public class SidebarImpl implements
             }
         }
         else {
-            x = this.stage.getX();
-            y = this.stage.getY();
+            if ( isShown ) {
+                switch ( currentSide ) {
+                    case TOP:
+                        x = effectivelyIgnored;
+                        y = effectivelyIgnored;
+                        doMove = false;
+                        break;
+                    case LEFT:
+                        x = effectivelyIgnored;
+                        y = effectivelyIgnored;
+                        doMove = false;
+                        break;
+                    case RIGHT:
+                        x = this.calculateRightShownX();
+                        y = existingY;
+                        break;
+                    case BOTTOM:
+                        x = existingX;
+                        y = this.calculateBottomShownY();
+                        break;
+                    default:
+                        throw currentSide.unsupported();
+                }
+            }
+            else {
+                switch ( currentSide ) {
+                    case TOP:
+                        x = existingX;
+                        y = this.calculateTopHiddenY();
+                        break;
+                    case LEFT:
+                        x = this.calculateLeftHiddenX();
+                        y = existingY;
+                        break;
+                    case RIGHT:
+                        x = this.calculateRightHiddenX();
+                        y = existingY;
+                        break;
+                    case BOTTOM:
+                        x = effectivelyIgnored;
+                        y = effectivelyIgnored;
+                        doMove = false;
+                        break;
+                    default:
+                        throw currentSide.unsupported();
+                }
+            }
         }
 
-        this.doInternalMove(x, y, ADJUSTMENT_MOVE);
+        if ( doMove ) {
+            this.doInternalMove(x, y, ADJUSTMENT_MOVE);
+        }
     }
 
     private void process(ProgrammaticMove move) {
@@ -1395,6 +1555,7 @@ public class SidebarImpl implements
     }
 
     private void doInternalMove(double newX, double newY, String move) {
+        System.out.println("internal move");
         boolean movable = this.stageMoving.isMovable().get();
         try {
             if ( ! movable ) {
@@ -1456,7 +1617,7 @@ public class SidebarImpl implements
 
     @Override
     public Watch watch() {
-        return this.watch;
+        return this.watch.watch;
     }
 
     @Override
@@ -1475,8 +1636,18 @@ public class SidebarImpl implements
     }
 
     @Override
+    public void touchAndBlock(String block, long millisForBlockToExist) {
+        this.queueAction(new NamedTypedSessionAction(TOUCH_AND_BLOCK, block, millisForBlockToExist));
+    }
+
+    @Override
     public void block(String block) {
         this.queueAction(new NamedTypedSessionAction(BLOCK, block));
+    }
+
+    @Override
+    public void block(String block, long millisForBlockToExist) {
+        this.queueAction(new NamedTypedSessionAction(BLOCK, block, millisForBlockToExist));
     }
 
     @Override

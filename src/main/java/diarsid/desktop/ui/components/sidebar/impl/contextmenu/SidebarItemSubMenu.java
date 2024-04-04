@@ -12,12 +12,12 @@ public class SidebarItemSubMenu extends Menu {
         this.item = item;
         super.setText(item.name());
 
-        item.itemsContextMenuItems().forEach(menuItem -> {
+        item.itemContextMenuItems().forEach(menuItem -> {
             menuItem.getStyleClass().add("sidebar-context-item-submenu-item");
             menuItem.getStyleClass().add("sidebar-context-item-submenu-item-" + menuItem.getText());
         });
 
-        super.getItems().setAll(item.itemsContextMenuItems());
+        super.getItems().setAll(item.itemContextMenuItems());
 
         super.getStyleClass().add("sidebar-context-menu");
         super.getStyleClass().add("sidebar-context-item-submenu");

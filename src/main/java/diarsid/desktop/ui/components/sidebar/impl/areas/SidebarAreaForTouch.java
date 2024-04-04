@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidebar.impl.areas;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.stage.Stage;

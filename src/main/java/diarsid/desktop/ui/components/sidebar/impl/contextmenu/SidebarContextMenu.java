@@ -2,6 +2,7 @@ package diarsid.desktop.ui.components.sidebar.impl.contextmenu;
 
 import java.util.function.Consumer;
 
+import javafx.beans.property.BooleanProperty;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
@@ -12,20 +13,39 @@ import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relativ
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.LEFT_CENTER;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.RIGHT_CENTER;
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.TOP_CENTER;
+import static diarsid.support.javafx.PropertiesUtil.revert;
 
 public class SidebarContextMenu extends ContextMenu {
 
+    private final BooleanProperty pin;
     private volatile SidebarItemSubMenu selectedItemSubmenu;
 
-    public SidebarContextMenu(Consumer<Sidebar.Position.Relative> setRelativePosition) {
-        MenuItem pinUnpin = new MenuItem("pin / unpin");
+    public SidebarContextMenu(
+            BooleanProperty pin,
+            Consumer<Sidebar.Position.Relative> setRelativePosition) {
+        this.pin = pin;
+        MenuItem pinUnpin = new MenuItem(this.pinOrUnpin());
         MenuItem settings = new MenuItem("settings");
-        Menu setPosition = new Menu("set position...");
+        Menu centerAt = new Menu("center at...");
 
-        MenuItem topCenter = new MenuItem("top center");
-        MenuItem rightCenter = new MenuItem("right center");
-        MenuItem bottomCenter = new MenuItem("bottom center");
-        MenuItem leftCenter = new MenuItem("left center");
+        MenuItem topCenter = new MenuItem("top");
+        MenuItem rightCenter = new MenuItem("right");
+        MenuItem bottomCenter = new MenuItem("bottom");
+        MenuItem leftCenter = new MenuItem("left");
+
+        this.pin.addListener((prop, oldValue, newValue) -> {
+            pinUnpin.setText(this.pinOrUnpin());
+            if ( newValue ) {
+                super.getItems().remove(centerAt);
+            }
+            else {
+                super.getItems().add(centerAt);
+            }
+        });
+
+        pinUnpin.setOnAction(event -> {
+            revert(this.pin);
+        });
 
         topCenter.setOnAction(event -> {
             setRelativePosition.accept(TOP_CENTER);
@@ -43,15 +63,23 @@ public class SidebarContextMenu extends ContextMenu {
             setRelativePosition.accept(LEFT_CENTER);
         });
 
-        setPosition.getItems().setAll(topCenter, rightCenter, bottomCenter, leftCenter);
+        centerAt.getItems().setAll(topCenter, rightCenter, bottomCenter, leftCenter);
 
-        super.getItems().setAll(pinUnpin, settings, setPosition);
+        super.getItems().setAll(pinUnpin, settings);
+
+        if ( ! this.pin.get() ) {
+            super.getItems().add(centerAt);
+        }
 
         super.getItems().forEach(menuItem -> {
             menuItem.getStyleClass().add("sidebar-context-menu-item");
         });
 
         super.getStyleClass().add("sidebar-context-menu");
+    }
+
+    private String pinOrUnpin() {
+        return this.pin.get() ? "unpin" : "pin";
     }
 
     public void addSelectedItemSubmenu(SidebarItemSubMenu itemSubmenu) {

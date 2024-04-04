@@ -1,7 +1,5 @@
 package diarsid.desktop.ui.components.sidebar.impl;
 
-import java.util.Optional;
-
 import diarsid.desktop.ui.components.sidebar.api.Sidebar;
 import diarsid.desktop.ui.geometry.Rectangle;
 

@@ -10,4 +10,5 @@ module diarsid.desktop.ui.components.sidebar {
     requires diarsid.desktop.ui;
 
     exports diarsid.desktop.ui.components.sidebar.api;
+    exports diarsid.desktop.ui.components.sidebar.api.impl.items;
 }

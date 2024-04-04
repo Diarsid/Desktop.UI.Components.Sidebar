@@ -17,14 +17,17 @@ import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarItemSubMenu
 import diarsid.support.objects.StatefulClearable;
 
 import static java.lang.String.format;
+import static java.lang.Thread.currentThread;
+import static java.time.LocalDateTime.now;
 import static java.util.Objects.nonNull;
+import static java.util.concurrent.CompletableFuture.runAsync;
 
 import static javafx.scene.input.MouseButton.PRIMARY;
 import static javafx.scene.input.MouseEvent.MOUSE_DRAGGED;
 import static javafx.scene.input.MouseEvent.MOUSE_PRESSED;
 import static javafx.scene.input.MouseEvent.MOUSE_RELEASED;
 
-public class ItemHolder implements StatefulClearable {
+class ItemHolder implements StatefulClearable {
 
     private static final Logger log = LoggerFactory.getLogger(ItemHolder.class);
 
@@ -42,7 +45,7 @@ public class ItemHolder implements StatefulClearable {
 
     private final AtomicReference<EventType<MouseEvent>> lastMouseEvent;
 
-    public ItemHolder(
+    ItemHolder(
             int i,
             Sidebar.Item item,
             ChangeListener<? super Number> itemNodeSizeChangeListener,
@@ -66,6 +69,7 @@ public class ItemHolder implements StatefulClearable {
             }
             else if ( event.isSecondaryButtonDown() ) {
                 this.itemContextMenuInvoked.accept(event, this.subMenu);
+                event.consume();
             }
         };
 
@@ -127,18 +131,25 @@ public class ItemHolder implements StatefulClearable {
     }
 
     private void invokeSafely() {
-        try {
-            this.item.run();
-            log.info(format("[SIDEBAR ITEM RUN] uuid:%s, name:%s - OK", this.item.uuid(), this.item.name()));
-        }
-        catch (Throwable t) {
+        runAsync(() -> {
+            String originThreadName = currentThread().getName();
+            currentThread().setName(format("%s[%s].%s", Sidebar.Item.class.getCanonicalName(), this.item.name(), now()));
             try {
-                item.onThrownInRun(t);
-                log.info(format("[SIDEBAR ITEM RUN] uuid:%s, name:%s - exception handled", this.item.uuid(), this.item.name()));
+                this.item.run();
+                log.info(format("[SIDEBAR ITEM RUN] uuid:%s, name:%s - OK", this.item.uuid(), this.item.name()));
             }
-            catch (Throwable t2) {
-                log.error("[SIDEBAR ITEM RUN] - exception on callback:", t);
+            catch (Throwable t) {
+                try {
+                    item.onThrownInRun(t);
+                    log.info(format("[SIDEBAR ITEM RUN] uuid:%s, name:%s - exception handled", this.item.uuid(), this.item.name()));
+                }
+                catch (Throwable t2) {
+                    log.error("[SIDEBAR ITEM RUN] - exception on callback:", t);
+                }
             }
-        }
+            finally {
+                currentThread().setName(originThreadName);
+            }
+        });
     }
 }

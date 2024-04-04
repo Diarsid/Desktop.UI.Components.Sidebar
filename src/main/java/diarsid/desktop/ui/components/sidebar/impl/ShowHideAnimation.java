@@ -13,15 +13,18 @@ import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.util.Duration;
 
+import diarsid.desktop.ui.components.sidebar.api.Sidebar;
 import diarsid.support.objects.references.Possible;
 import diarsid.support.objects.references.References;
 
 import static javafx.animation.Animation.Status.RUNNING;
 
-public class ShowHideAnimation {
+import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Behavior.Type.SMOOTH;
 
-    private final double hidingTime;
-    private final double showingTime;
+public class ShowHideAnimation implements ShowHideBehavior {
+
+    private final Sidebar.Behavior.Show show;
+    private final Sidebar.Behavior.Hide hide;
     private final DoubleProperty mutableValue;
     private final ChangeListener<? super Number> mutableValueListener;
     private final DoubleSupplier getHiddenValue;
@@ -36,8 +39,8 @@ public class ShowHideAnimation {
     private final Possible<Animation> hiding;
 
     public ShowHideAnimation(
-            double hidingTime,
-            double showingTime,
+            Sidebar.Behavior.Show show,
+            Sidebar.Behavior.Hide hide,
             DoubleSupplier getHiddenValue,
             DoubleSupplier getShownValue,
             DoubleConsumer valueChange,
@@ -45,8 +48,8 @@ public class ShowHideAnimation {
             Runnable onHidingFinished,
             Runnable onShowingBegins,
             Runnable onShowingFinished) {
-        this.hidingTime = hidingTime;
-        this.showingTime = showingTime;
+        this.show = show;
+        this.hide = hide;
         this.getHiddenValue = getHiddenValue;
         this.getShownValue = getShownValue;
         this.valueChange = valueChange;
@@ -64,33 +67,67 @@ public class ShowHideAnimation {
         this.hiding = References.simplePossibleButEmpty();
     }
 
+    private void showInstantly() {
+        double targetValue = this.getShownValue.getAsDouble();
+        this.valueChange.accept(targetValue);
+        this.onShowingFinished.run();
+    }
+
+    private void hideInstantly() {
+        double targetValue = this.getHiddenValue.getAsDouble();
+        this.valueChange.accept(targetValue);
+        this.onHidingFinished.run();
+    }
+
+    @Override
     public void show() {
-        if ( this.isShowingNow() ) {
+        if ( this.show.is(SMOOTH) && this.isShowingNow() ) {
             return;
         }
 
-        if ( this.isHidingNow() ) {
+        if ( this.hide.is(SMOOTH) && this.isHidingNow() ) {
             this.stopHiding();
-            this.beginShowingFromLastHidingValue();
+            if ( this.show.is(SMOOTH) ) {
+                this.beginShowingFromLastHidingValue();
+            }
+            else {
+                this.showInstantly();
+            }
         }
         else {
             this.onShowingBegins.run();
-            this.beginShowingFromStart();
+            if ( this.show.is(SMOOTH) ) {
+                this.beginShowingFromStart();
+            }
+            else {
+                this.showInstantly();
+            }
         }
     }
 
+    @Override
     public void hide() {
-        if ( this.isHidingNow() ) {
+        if ( this.hide.is(SMOOTH) && this.isHidingNow() ) {
             return;
         }
 
-        if ( this.isShowingNow() ) {
+        if ( this.show.is(SMOOTH) && this.isShowingNow() ) {
             this.stopShowing();
-            this.beginHidingFromLastShowingValue();
+            if ( this.hide.is(SMOOTH) ) {
+                this.beginHidingFromLastShowingValue();
+            }
+            else {
+                this.hideInstantly();
+            }
         }
         else {
             this.onHidingBegins.run();
-            this.beginHidingFromStart();
+            if ( this.hide.is(SMOOTH) ) {
+                this.beginHidingFromStart();
+            }
+            else {
+                this.hideInstantly();
+            }
         }
     }
 
@@ -144,7 +181,7 @@ public class ShowHideAnimation {
 
     private void beginShowingFromStart() {
         Timeline newShowing = new Timeline();
-        Duration duration = Duration.seconds(this.showingTime);
+        Duration duration = Duration.seconds(this.show.seconds);
 
         double initialValue = this.getHiddenValue.getAsDouble();
         double targetValue = this.getShownValue.getAsDouble();
@@ -170,7 +207,7 @@ public class ShowHideAnimation {
 
     private void beginShowingFromLastHidingValue() {
         Timeline newShowing = new Timeline();
-        Duration duration = Duration.seconds(this.showingTime / 2);
+        Duration duration = Duration.seconds(this.show.seconds / 2);
 
         double targetValue = this.getShownValue.getAsDouble();
 
@@ -193,7 +230,7 @@ public class ShowHideAnimation {
 
     private void beginHidingFromStart() {
         Timeline newHiding = new Timeline();
-        Duration duration = Duration.seconds(this.hidingTime);
+        Duration duration = Duration.seconds(this.hide.seconds);
 
         double initialValue = this.getShownValue.getAsDouble();
         double targetValue = this.getHiddenValue.getAsDouble();
@@ -219,7 +256,7 @@ public class ShowHideAnimation {
 
     private void beginHidingFromLastShowingValue() {
         Timeline newHiding = new Timeline();
-        Duration duration = Duration.seconds(this.hidingTime);
+        Duration duration = Duration.seconds(this.hide.seconds);
 
         double targetValue = this.getHiddenValue.getAsDouble();
 

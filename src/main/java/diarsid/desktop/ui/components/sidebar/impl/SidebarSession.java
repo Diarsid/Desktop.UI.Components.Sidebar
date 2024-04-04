@@ -18,6 +18,7 @@ import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.objects.references.Possible;
 
 import static java.util.Collections.synchronizedList;
+import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.PROGRAMMATICAL;
@@ -38,6 +39,7 @@ public class SidebarSession implements Sidebar.Session {
     private final Possible<Future<?>> deactivation;
     private final List<String> blocks;
     private final ScheduledExecutorService async;
+    private final ScheduledExecutorService asyncUnblock;
     private final List<Touch.Listener> touchListeners;
 
     public SidebarSession(
@@ -58,90 +60,147 @@ public class SidebarSession implements Sidebar.Session {
         this.async = namedThreadSource.newNamedScheduledExecutorService(
                 this.getClass().getSimpleName() + "[" + name + "]",
                 1);
+        this.asyncUnblock = namedThreadSource.newNamedScheduledExecutorService(
+                this.getClass().getSimpleName() + "[" + name + "].unblock",
+                1);
         this.touchListeners = synchronizedList(new ArrayList<>());
     }
 
     @Override
     public boolean isActive() {
-        lock.readLock().lock();
+        this.lock.readLock().lock();
         try {
-            return deactivation.isPresent();
+            return this.deactivation.isPresent();
         }
         finally {
-            lock.readLock().unlock();
+            this.lock.readLock().unlock();
         }
     }
 
     @Override
     public void touch() {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
         try {
-            if ( blocks.isEmpty() ) {
-                doTouch(PROGRAMMATICAL);
+            if ( this.blocks.isEmpty() ) {
+                this.doTouch(PROGRAMMATICAL);
             }
         }
         finally {
-            lock.writeLock().unlock();
+            this.lock.writeLock().unlock();
         }
     }
 
     public void touch(String touchKind) {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
         try {
-            if ( blocks.isEmpty() ) {
-                doTouch(touchKind);
+            if ( this.blocks.isEmpty() ) {
+                this.doTouch(touchKind);
             }
         }
         finally {
-            lock.writeLock().unlock();
+            this.lock.writeLock().unlock();
         }
     }
 
     @Override
     public void touchAndBlock(String block) {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
         try {
             if ( blocks.isEmpty() ) {
-                doTouch(PROGRAMMATICAL);
-                block(block);
+                this.doTouch(PROGRAMMATICAL);
+                this.block(block);
             }
         }
         finally {
-            lock.writeLock().unlock();
+            this.lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void touchAndBlock(String block, long millisForBlockToExist) {
+        this.lock.writeLock().lock();
+        try {
+            if ( this.blocks.isEmpty() ) {
+                this.doTouch(PROGRAMMATICAL);
+                this.block(block);
+                this.asyncUnblock.schedule(
+                        () -> {
+                            this.unblock(block);
+                        },
+                        millisForBlockToExist, MILLISECONDS);
+            }
+        }
+        finally {
+            this.lock.writeLock().unlock();
         }
     }
 
     public void touchAndBlock(String touchKind, String block) {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
         try {
-            if ( blocks.isEmpty() ) {
-                doTouch(touchKind);
-                block(block);
+            if ( this.blocks.isEmpty() ) {
+                this.doTouch(touchKind);
+                this.block(block);
             }
         }
         finally {
-            lock.writeLock().unlock();
+            this.lock.writeLock().unlock();
+        }
+    }
+
+    public void touchAndBlock(String touchKind, String block, long millisForBlockToExist) {
+        this.lock.writeLock().lock();
+        try {
+            if ( this.blocks.isEmpty() ) {
+                this.doTouch(touchKind);
+                this.block(block);
+                this.asyncUnblock.schedule(
+                        () -> {
+                            unblock(block);
+                        },
+                        millisForBlockToExist, MILLISECONDS);
+            }
+        }
+        finally {
+            this.lock.writeLock().unlock();
         }
     }
 
     private void doTouch(String touchKind) {
-        if ( deactivation.isPresent() ) {
-            prolongActivity();
+        if ( this.deactivation.isPresent() ) {
+            this.prolongActivity();
         }
         else {
-            activate(touchKind);
+            this.activate(touchKind);
         }
     }
 
     @Override
     public void block(String block) {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
         try {
-            deactivation.ifPresent(asyncJob -> asyncJob.cancel(true));
-            blocks.add(block);
+            this.deactivation.ifPresent(asyncJob -> asyncJob.cancel(true));
+            this.blocks.add(block);
         }
         finally {
-            lock.writeLock().unlock();
+            this.lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void block(String block, long millisForBlockToExist) {
+        this.lock.writeLock().lock();
+        try {
+            this.deactivation.ifPresent(asyncJob -> asyncJob.cancel(true));
+            this.blocks.add(block);
+            this.asyncUnblock.schedule(
+                    () -> {
+                        this.unblock(block);
+                    },
+                    millisForBlockToExist, MILLISECONDS);
+        }
+        finally {
+            this.lock.writeLock().unlock();
         }
     }
 
@@ -241,9 +300,7 @@ public class SidebarSession implements Sidebar.Session {
             if ( blocks.isEmpty() ) {
                 boolean canDeactivate = this.canDeactivate.get();
                 if ( canDeactivate ) {
-                    Platform.runLater(() -> {
-                        this.onDeactivation.run();
-                    });
+                    Platform.runLater(this.onDeactivation);
                     deactivation.nullify();
                 }
                 else {

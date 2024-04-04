@@ -3,19 +3,20 @@ package diarsid.desktop.ui.components.sidebar.api;
 import java.io.Closeable;
 import java.io.Serializable;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.ReadOnlyIntegerProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
+import javafx.beans.property.SimpleIntegerProperty;
 import javafx.scene.control.MenuItem;
 
-import diarsid.desktop.ui.components.sidebar.impl.SidebarImpl;
+import diarsid.desktop.ui.components.sidebar.impl.SidebarBuilderImpl;
 import diarsid.desktop.ui.geometry.Rectangle;
+import diarsid.desktop.ui.mouse.watching.MouseWatcher;
 import diarsid.desktop.ui.mouse.watching.WatchBearer;
 import diarsid.support.concurrency.threads.NamedThreadSource;
-import diarsid.support.javafx.PlatformActions;
 import diarsid.support.javafx.components.Movable;
 import diarsid.support.javafx.components.Visible;
 import diarsid.support.model.Named;
@@ -32,26 +33,35 @@ import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
 
 public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBearer {
 
-    static Sidebar createInstance(
-            String name,
-            Position position,
-            BooleanProperty isPinned,
-            NamedThreadSource namedThreadSource,
-            Items.Alignment itemsAlignment,
-            Supplier<List<Item>> initialItems,
-            double showTime,
-            double hideTime) {
-        return PlatformActions.doGet(() -> {
-            return new SidebarImpl(
-                    name,
-                    position,
-                    isPinned,
-                    namedThreadSource,
-                    itemsAlignment,
-                    initialItems,
-                    showTime,
-                    hideTime);
-        });
+    public interface Builder {
+
+        public static Builder create() {
+            return new SidebarBuilderImpl();
+        }
+
+        Builder name(String name);
+
+        Builder isPinned(boolean isPinned);
+
+        Builder isPinned(BooleanProperty isPinned);
+
+        Builder saveState(boolean saveState);
+
+        Builder initialPosition(Position initialPosition);
+
+        Builder async(NamedThreadSource async);
+
+        Builder itemsAlignment(Items.Alignment alignment);
+
+        Builder items(Supplier<List<Item>> items);
+
+        Builder show(Behavior.Show show);
+
+        Builder hide(Behavior.Hide hide);
+
+        Builder mouseWatcher(MouseWatcher mouseWatcher);
+
+        Sidebar done();
     }
 
     enum State implements CommonEnum<State> {
@@ -148,6 +158,60 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
         Items items();
 
+        OnTouchDelay onTouchDelay();
+
+    }
+
+    public interface Behavior {
+
+        public static enum Type implements CommonEnum<Type> {
+            INSTANT,
+            SMOOTH
+        }
+
+        public static final class Hide extends Moving {
+
+            public static Hide instant() {
+                return new Hide();
+            }
+
+            public static Hide seconds(double seconds) {
+                if ( seconds < 0.01 ) {
+                    return instant();
+                }
+                return new Hide(seconds);
+            }
+
+            private Hide() {
+                super();
+            }
+
+            private Hide(double seconds) {
+                super(seconds);
+            }
+        }
+
+        public static final class Show extends Moving {
+
+            public static Show instant() {
+                return new Show();
+            }
+
+            public static Show seconds(double seconds) {
+                if ( seconds < 0.01 ) {
+                    return instant();
+                }
+                return new Show(seconds);
+            }
+
+            private Show() {
+                super();
+            }
+
+            private Show(double seconds) {
+                super(seconds);
+            }
+        }
     }
 
     interface Items {
@@ -175,15 +239,17 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
     }
 
-    interface Item extends Unique, Named, Visible, Runnable {
+    interface Item extends Unique, Named, Visible {
 
-        default List<MenuItem> itemsContextMenuItems() {
+        default List<MenuItem> itemContextMenuItems() {
             return emptyList();
         }
 
         default void onThrownInRun(Throwable t) {
             // for override
         }
+
+        String run(); // runs logic and returns error message, if any. If run is successful, returns null;
     }
 
     /*
@@ -221,7 +287,11 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
         void touchAndBlock(String block);
 
+        void touchAndBlock(String block, long millisForBlockToExist);
+
         void block(String block);
+
+        void block(String block, long millisForBlockToExist);
 
         void unblock(String block);
 
@@ -254,6 +324,19 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
             }
         }
+    }
+
+    interface OnTouchDelay {
+
+        void set(ReadOnlyIntegerProperty delay);
+
+        default void set(int delay) {
+            this.set(new SimpleIntegerProperty(delay));
+        }
+
+        long getOrZero();
+
+        boolean isSet();
     }
 
 }
