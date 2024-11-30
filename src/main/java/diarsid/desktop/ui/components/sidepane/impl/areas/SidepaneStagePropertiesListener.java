@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl.areas;
+package diarsid.desktop.ui.components.sidepane.impl.areas;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.ReadOnlyDoubleProperty;
@@ -7,7 +7,7 @@ import javafx.stage.Stage;
 import diarsid.desktop.ui.geometry.Rectangle;
 import diarsid.support.javafx.geometry.Screen;
 
-public abstract class SidebarStagePropertiesListener {
+public abstract class SidepaneStagePropertiesListener {
 
     protected final Screen screen;
     protected final ReadOnlyDoubleProperty x;
@@ -16,7 +16,7 @@ public abstract class SidebarStagePropertiesListener {
     protected final ReadOnlyDoubleProperty height;
     protected final ObjectProperty<Rectangle.Side> side;
 
-    public SidebarStagePropertiesListener(
+    public SidepaneStagePropertiesListener(
             Screen screen,
             Stage stage,
             ObjectProperty<Rectangle.Side> side) {
@@ -28,7 +28,7 @@ public abstract class SidebarStagePropertiesListener {
                 side);
     }
 
-    public SidebarStagePropertiesListener(
+    public SidepaneStagePropertiesListener(
             Screen screen,
             ReadOnlyDoubleProperty x,
             ReadOnlyDoubleProperty y,

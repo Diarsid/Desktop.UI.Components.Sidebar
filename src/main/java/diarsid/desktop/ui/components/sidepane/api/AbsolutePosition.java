@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.api;
+package diarsid.desktop.ui.components.sidepane.api;
 
 import java.util.Objects;
 
@@ -6,7 +6,7 @@ import diarsid.desktop.ui.geometry.Rectangle;
 
 import static java.util.Objects.requireNonNull;
 
-public class AbsolutePosition implements Sidebar.Position.Absolute {
+public class AbsolutePosition implements Sidepane.Position.Absolute {
 
     private final Rectangle.Side side;
     private final double coordinate;

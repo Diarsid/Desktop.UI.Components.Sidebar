@@ -10,24 +10,25 @@ import javafx.scene.control.MenuItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
-import diarsid.desktop.ui.components.sidebar.api.impl.items.ItemWithIconAndFile;
-import diarsid.desktop.ui.components.sidebar.api.impl.items.IconsSettings;
-import diarsid.desktop.ui.mouse.watching.MouseWatcher;
+import diarsid.desktop.ui.components.sidebar.api.Item;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
+import diarsid.desktop.ui.components.sidebar.impl.items.ItemWithIconAndFile;
+import diarsid.desktop.ui.components.sidebar.impl.items.IconsSettings;
+import diarsid.desktop.ui.components.sidebar.impl.items.ItemsView;
 import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.javafx.PlatformActions;
 
 import static java.util.UUID.randomUUID;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PARALLEL_TO_SIDE;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.TOP_CENTER;
+import static diarsid.desktop.ui.components.sidebar.api.Items.Alignment.PARALLEL_TO_SIDE;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.TOP_CENTER;
 import static diarsid.support.tests.concurrency.CurrentThread.blocking;
 
 public class Main {
 
     private final static Logger log = LoggerFactory.getLogger(Main.class);
 
-    static class LabelItem implements Sidebar.Item {
+    static class LabelItem implements Item {
 
         private final UUID uuid;
         private final String name;
@@ -78,6 +79,21 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
+        ItemsView itemsView = PlatformActions.doGet(() -> {
+            return new ItemsView(
+                    PARALLEL_TO_SIDE,
+                    () -> {
+                        List<Item> initialItems = new ArrayList<>();
+                        initialItems.add(new LabelItem("A"));
+                        initialItems.add(new LabelItem("B"));
+                        initialItems.add(new LabelItem("C"));
+                        return initialItems;
+                    });
+        });
+
+
+        ///// ----------------------------------------
+
         PlatformActions.awaitStartup();
 
         IconsSettings iconsSettings = new IconsSettings(new IconsSettings.BrightnessChange(0.2, -0.2), 50);
@@ -85,11 +101,11 @@ public class Main {
         ItemWithIconAndFile notepadPP = new ItemWithIconAndFile("Notepad++", "D:/SOUL/Programs/Links/Dev/Notepad++.lnk", iconsSettings);
         ItemWithIconAndFile projects = new ItemWithIconAndFile("Projects", "D:/DEV/1__Projects", "D:/SOUL/Icons/Projects2.bmp", iconsSettings);
 
-        String name = "sidebar-demo";
+        String name = "sidepane-demo";
 
 //        Sidebar.Position position = new RealManualPosition(TOP, 1798);
 
-        NamedThreadSource namedThreadSource = new NamedThreadSource("sidebar-demo");
+        NamedThreadSource namedThreadSource = new NamedThreadSource("sidepane-demo");
 
 //        Sidebar.OnAction.Moved onMoved = (side, min, max) -> {
 //            position.setCoordinates(side, min, max);
@@ -98,26 +114,19 @@ public class Main {
 //        };
 
 
-        Sidebar sidebar = Sidebar.Builder
-                .create()
+        Sidepane<List<Item>> sidepane = Sidepane.Builder
+                .<List<Item>>create()
                 .name(name)
                 .initialPosition(TOP_CENTER)
                 .isPinned(false)
                 .saveState(true)
                 .async(namedThreadSource)
-                .itemsAlignment(PARALLEL_TO_SIDE)
-                .items(() -> {
-                    List<Sidebar.Item> items = new ArrayList<>();
-                    items.add(new LabelItem("A"));
-                    items.add(new LabelItem("B"));
-                    items.add(new LabelItem("C"));
-                    return items;
-                })
-                .show(Sidebar.Behavior.Show.seconds(0.15))
-                .hide(Sidebar.Behavior.Hide.seconds(0.15))
+                .contentView(itemsView)
+                .show(Sidepane.Behavior.Show.seconds(0.15))
+                .hide(Sidepane.Behavior.Hide.seconds(0.15))
                 .done();
 
-        sidebar.position().addListener((ref, oldPosition, newPosition) -> {
+        sidepane.position().addListener((ref, oldPosition, newPosition) -> {
             if ( newPosition.hasRelative() ) {
                 System.out.println("moved to: " + newPosition.relativeOrThrow());
             }
@@ -126,14 +135,14 @@ public class Main {
             }
         });
 
-        sidebar.control().movePermission().addListener((ref, oldValue, newValue) -> {
+        sidepane.control().movePermission().addListener((ref, oldValue, newValue) -> {
             System.out.println("is pinned: " + newValue);
         });
 
-        sidebar.control().session().add((touchKind) -> {
+        sidepane.control().session().add((touchKind) -> {
             System.out.println("touched - " + touchKind);
         });
-        sidebar.control().onTouchDelay().set(300);
+        sidepane.control().onTouchDelay().set(300);
 
         blocking()
                 .sleep(5_000)
@@ -153,7 +162,7 @@ public class Main {
                 .sleep(5_000)
                 .afterSleepNothing();
 
-        Sidebar.Item item = sidebar.control().items().all().get(2);
+//        Item item = sidebar.control().items().all().get(2);
 //        ((LabelItem) item).setSize(60);
 //        System.out.println("resized");
 

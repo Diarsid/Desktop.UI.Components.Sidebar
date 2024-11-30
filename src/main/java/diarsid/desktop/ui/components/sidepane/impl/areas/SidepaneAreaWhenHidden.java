@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl.areas;
+package diarsid.desktop.ui.components.sidepane.impl.areas;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.geometry.Insets;
@@ -18,14 +18,14 @@ import static diarsid.desktop.ui.geometry.Rectangle.Side.LEFT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.RIGHT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
 
-public class SidebarAreaWhenHidden extends SidebarStagePropertiesListener implements Rectangle  {
+public class SidepaneAreaWhenHidden extends SidepaneStagePropertiesListener implements Rectangle  {
 
     private final MutableRectangle hiddenArea;
     private final double screenWidth;
     private final double screenHeight;
     private final Insets insets;
 
-    public SidebarAreaWhenHidden(Screen screen, Stage stage, ObjectProperty<Side> side) {
+    public SidepaneAreaWhenHidden(Screen screen, Stage stage, ObjectProperty<Side> side) {
         super(screen, stage, side);
 
         this.screenWidth = super.screen.width();

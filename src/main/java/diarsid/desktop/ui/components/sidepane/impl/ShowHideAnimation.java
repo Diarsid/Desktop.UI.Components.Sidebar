@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidepane.impl;
 
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
@@ -13,18 +13,18 @@ import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.util.Duration;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
 import diarsid.support.objects.references.Possible;
 import diarsid.support.objects.references.References;
 
 import static javafx.animation.Animation.Status.RUNNING;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Behavior.Type.SMOOTH;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Behavior.Type.SMOOTH;
 
 public class ShowHideAnimation implements ShowHideBehavior {
 
-    private final Sidebar.Behavior.Show show;
-    private final Sidebar.Behavior.Hide hide;
+    private final Sidepane.Behavior.Show show;
+    private final Sidepane.Behavior.Hide hide;
     private final DoubleProperty mutableValue;
     private final ChangeListener<? super Number> mutableValueListener;
     private final DoubleSupplier getHiddenValue;
@@ -39,8 +39,8 @@ public class ShowHideAnimation implements ShowHideBehavior {
     private final Possible<Animation> hiding;
 
     public ShowHideAnimation(
-            Sidebar.Behavior.Show show,
-            Sidebar.Behavior.Hide hide,
+            Sidepane.Behavior.Show show,
+            Sidepane.Behavior.Hide hide,
             DoubleSupplier getHiddenValue,
             DoubleSupplier getShownValue,
             DoubleConsumer valueChange,

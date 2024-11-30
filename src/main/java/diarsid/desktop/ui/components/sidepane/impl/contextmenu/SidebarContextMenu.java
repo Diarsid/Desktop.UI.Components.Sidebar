@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl.contextmenu;
+package diarsid.desktop.ui.components.sidepane.impl.contextmenu;
 
 import java.util.function.Consumer;
 
@@ -7,22 +7,22 @@ import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.BOTTOM_CENTER;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.LEFT_CENTER;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.RIGHT_CENTER;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.TOP_CENTER;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.BOTTOM_CENTER;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.LEFT_CENTER;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.RIGHT_CENTER;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.TOP_CENTER;
 import static diarsid.support.javafx.PropertiesUtil.revert;
 
 public class SidebarContextMenu extends ContextMenu {
 
     private final BooleanProperty pin;
-    private volatile SidebarItemSubMenu selectedItemSubmenu;
+    private volatile Menu additionalSubmenu;
 
     public SidebarContextMenu(
             BooleanProperty pin,
-            Consumer<Sidebar.Position.Relative> setRelativePosition) {
+            Consumer<Sidepane.Position.Relative> setRelativePosition) {
         this.pin = pin;
         MenuItem pinUnpin = new MenuItem(this.pinOrUnpin());
         MenuItem settings = new MenuItem("settings");
@@ -72,26 +72,26 @@ public class SidebarContextMenu extends ContextMenu {
         }
 
         super.getItems().forEach(menuItem -> {
-            menuItem.getStyleClass().add("sidebar-context-menu-item");
+            menuItem.getStyleClass().add("sidepane-context-menu-item");
         });
 
-        super.getStyleClass().add("sidebar-context-menu");
+        super.getStyleClass().add("sidepane-context-menu");
     }
 
     private String pinOrUnpin() {
         return this.pin.get() ? "unpin" : "pin";
     }
 
-    public void addSelectedItemSubmenu(SidebarItemSubMenu itemSubmenu) {
-        this.removeSelectedItemSubmenu();
-        this.selectedItemSubmenu = itemSubmenu;
-        if ( ! itemSubmenu.getItems().isEmpty() ) {
-            super.getItems().add(itemSubmenu);
+    public void addSubmenu(Menu additionalSubmenu) {
+        this.removeAdditionalSubmenu();
+        this.additionalSubmenu = additionalSubmenu;
+        if ( ! additionalSubmenu.getItems().isEmpty() ) {
+            super.getItems().add(additionalSubmenu);
         }
     }
 
-    public void removeSelectedItemSubmenu() {
-        super.getItems().remove(this.selectedItemSubmenu);
-        this.selectedItemSubmenu = null;
+    public void removeAdditionalSubmenu() {
+        super.getItems().remove(this.additionalSubmenu);
+        this.additionalSubmenu = null;
     }
 }

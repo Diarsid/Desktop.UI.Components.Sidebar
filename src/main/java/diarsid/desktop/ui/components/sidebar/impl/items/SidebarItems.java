@@ -13,15 +13,14 @@ import javafx.scene.input.MouseEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
-import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarItemSubMenu;
+import diarsid.desktop.ui.components.sidebar.api.Item;
 import diarsid.support.strings.MultilineMessage;
 
-public class SidebarItems {
+class SidebarItems {
 
     private static final Logger log = LoggerFactory.getLogger(SidebarItems.class);
 
-    private final List<Sidebar.Item> items;
+    private final List<Item> items;
     private final List<Node> itemNodes;
     private final List<ItemHolder> itemHolders;
 
@@ -29,8 +28,8 @@ public class SidebarItems {
     private final Runnable hideContextMenuWhenItemInvoked;
     private final BiConsumer<MouseEvent, SidebarItemSubMenu> itemContextMenuInvoked;
 
-    public SidebarItems(
-            Supplier<List<Sidebar.Item>> initialItems,
+    SidebarItems(
+            Supplier<List<Item>> initialItems,
             ChangeListener<? super Number> itemNodeSizeChangeListener,
             Runnable hideContextMenuWhenItemInvoked,
             BiConsumer<MouseEvent, SidebarItemSubMenu> itemContextMenuInvoked) {
@@ -50,7 +49,7 @@ public class SidebarItems {
         this.itemHolders.forEach(ItemHolder::clear);
         this.itemHolders.clear();
 
-        Sidebar.Item item;
+        Item item;
         for ( int i = 0; i < this.items.size(); i++ ) {
             item = this.items.get(i);
             this.itemNodes.add(item.node());
@@ -63,19 +62,19 @@ public class SidebarItems {
         }
     }
 
-    public List<Node> nodes() {
+    List<Node> nodes() {
         return this.itemNodes;
     }
 
-    public List<Sidebar.Item> unmodifiableList() {
+    List<Item> unmodifiableList() {
         return Collections.unmodifiableList(this.items);
     }
 
-    public void apply(Consumer<List<Sidebar.Item>> mutation) {
+    void apply(Consumer<List<Item>> mutation) {
         mutation.accept(this.items);
         MultilineMessage message = new MultilineMessage("[SIDEBAR ITEMS]", "   ");
         message.newLine().add("new version:");
-        for ( Sidebar.Item item : this.items ) {
+        for ( Item item : this.items ) {
             message.newLine().indent().add("uuid:").add(item.uuid().toString()).add(", name:").add(item.name());
         }
         log.info(message.compose());

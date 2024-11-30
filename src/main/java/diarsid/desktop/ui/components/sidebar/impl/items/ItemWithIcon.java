@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.api.impl.items;
+package diarsid.desktop.ui.components.sidebar.impl.items;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +14,7 @@ import javafx.scene.effect.Effect;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidebar.api.Item;
 import diarsid.support.objects.references.Possible;
 
 import static java.util.Objects.isNull;
@@ -25,7 +25,7 @@ import static javafx.scene.input.MouseEvent.MOUSE_RELEASED;
 
 import static diarsid.support.objects.references.References.simplePossibleButEmpty;
 
-public class ItemWithIcon implements Sidebar.Item {
+public class ItemWithIcon implements Item {
 
     private final UUID uuid;
     private final String name;
@@ -63,7 +63,7 @@ public class ItemWithIcon implements Sidebar.Item {
         this.icon.setFitHeight(iconSize);
         this.icon.setPreserveRatio(true);
         this.icon.setImage(image);
-        this.icon.getStyleClass().add("sidebar-item-icon");
+        this.icon.getStyleClass().add("sidepane-item-icon");
         this.iconLabel = new Label();
         this.iconLabel.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
         this.iconLabel.setGraphic(this.icon);

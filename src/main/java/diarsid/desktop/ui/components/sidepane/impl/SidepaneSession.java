@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidepane.impl;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,22 +13,21 @@ import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
 import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.objects.references.Possible;
 
 import static java.util.Collections.synchronizedList;
-import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.PROGRAMMATICAL;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Session.Touch.Kind.PROGRAMMATICAL;
 import static diarsid.support.concurrency.threads.ThreadsUtil.shutdownAndWait;
 import static diarsid.support.objects.collections.CollectionUtils.nonEmpty;
 import static diarsid.support.objects.references.References.simplePossibleButEmpty;
 
-public class SidebarSession implements Sidebar.Session {
+public class SidepaneSession implements Sidepane.Session {
 
-    private static final Logger log = LoggerFactory.getLogger(SidebarSession.class);
+    private static final Logger log = LoggerFactory.getLogger(SidepaneSession.class);
 
     private final String name;
     private final int millisToFinishSession;
@@ -42,7 +41,7 @@ public class SidebarSession implements Sidebar.Session {
     private final ScheduledExecutorService asyncUnblock;
     private final List<Touch.Listener> touchListeners;
 
-    public SidebarSession(
+    public SidepaneSession(
             String name,
             int millisToFinishSession,
             NamedThreadSource namedThreadSource,

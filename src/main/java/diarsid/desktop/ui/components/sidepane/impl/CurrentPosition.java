@@ -1,12 +1,12 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidepane.impl;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
 import diarsid.desktop.ui.geometry.Rectangle;
 
 import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
-class CurrentPosition implements Sidebar.Position.Current {
+class CurrentPosition implements Sidepane.Position.Current {
 
     private final Rectangle.Side side;
     private final double coordinate;

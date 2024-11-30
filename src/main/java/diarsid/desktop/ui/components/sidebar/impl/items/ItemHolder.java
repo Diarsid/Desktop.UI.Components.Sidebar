@@ -12,8 +12,7 @@ import javafx.scene.layout.Region;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
-import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarItemSubMenu;
+import diarsid.desktop.ui.components.sidebar.api.Item;
 import diarsid.support.objects.StatefulClearable;
 
 import static java.lang.String.format;
@@ -32,7 +31,7 @@ class ItemHolder implements StatefulClearable {
     private static final Logger log = LoggerFactory.getLogger(ItemHolder.class);
 
     private final int i;
-    private final Sidebar.Item item;
+    private final Item item;
     private final SidebarItemSubMenu subMenu;
 
     private final ChangeListener<? super Number> itemNodeSizeChangeListener;
@@ -47,7 +46,7 @@ class ItemHolder implements StatefulClearable {
 
     ItemHolder(
             int i,
-            Sidebar.Item item,
+            Item item,
             ChangeListener<? super Number> itemNodeSizeChangeListener,
             Runnable hideContextMenuWhenItemInvoked,
             BiConsumer<MouseEvent, SidebarItemSubMenu> itemContextMenuInvoked) {
@@ -97,10 +96,10 @@ class ItemHolder implements StatefulClearable {
         Node itemNode = item.node();
 
         itemNode.getStyleClass().addAll(
-                "sidebar-item",
-                "sidebar-item-" + i,
-                "sidebar-item-" + item.name().toLowerCase(),
-                "sidebar-item-" + item.uuid().toString());
+                "sidepane-item",
+                "sidepane-item-" + i,
+                "sidepane-item-" + item.name().toLowerCase(),
+                "sidepane-item-" + item.uuid().toString());
 
         if ( itemNode instanceof Region) {
             Region itemRegion = (Region) itemNode;
@@ -117,7 +116,7 @@ class ItemHolder implements StatefulClearable {
     public void clear() {
         Node itemNode = this.item.node();
 
-        itemNode.getStyleClass().removeIf(styleClass -> styleClass.startsWith("sidebar-item"));
+        itemNode.getStyleClass().removeIf(styleClass -> styleClass.startsWith("sidepane-item"));
 
         if ( itemNode instanceof Region) {
             Region itemRegion = (Region) itemNode;
@@ -133,7 +132,7 @@ class ItemHolder implements StatefulClearable {
     private void invokeSafely() {
         runAsync(() -> {
             String originThreadName = currentThread().getName();
-            currentThread().setName(format("%s[%s].%s", Sidebar.Item.class.getCanonicalName(), this.item.name(), now()));
+            currentThread().setName(format("%s[%s].%s", Item.class.getCanonicalName(), this.item.name(), now()));
             try {
                 this.item.run();
                 log.info(format("[SIDEBAR ITEM RUN] uuid:%s, name:%s - OK", this.item.uuid(), this.item.name()));

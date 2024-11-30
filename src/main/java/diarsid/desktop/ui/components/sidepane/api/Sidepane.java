@@ -1,67 +1,64 @@
-package diarsid.desktop.ui.components.sidebar.api;
+package diarsid.desktop.ui.components.sidepane.api;
 
 import java.io.Closeable;
 import java.io.Serializable;
-import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyIntegerProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.SimpleIntegerProperty;
-import javafx.scene.control.MenuItem;
+import javafx.css.PseudoClass;
+import javafx.scene.control.Menu;
+import javafx.scene.input.MouseEvent;
 
-import diarsid.desktop.ui.components.sidebar.impl.SidebarBuilderImpl;
+import diarsid.desktop.ui.components.sidepane.impl.SidepaneBuilderImpl;
 import diarsid.desktop.ui.geometry.Rectangle;
 import diarsid.desktop.ui.mouse.watching.MouseWatcher;
 import diarsid.desktop.ui.mouse.watching.WatchBearer;
 import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.javafx.components.Movable;
 import diarsid.support.javafx.components.Visible;
+import diarsid.support.javafx.geometry.Screen;
 import diarsid.support.model.Named;
-import diarsid.support.model.Unique;
 import diarsid.support.objects.CommonEnum;
 
-import static java.util.Collections.emptyList;
-
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Position.Relative.Place.CENTER;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Position.Relative.Place.CENTER;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.BOTTOM;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.LEFT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.RIGHT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
 
-public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBearer {
+public interface Sidepane<T> extends Named, Rectangle, Visible, Closeable, WatchBearer {
 
-    public interface Builder {
+    public interface Builder<T> {
 
-        public static Builder create() {
-            return new SidebarBuilderImpl();
+        public static <T> Builder<T> create() {
+            return new SidepaneBuilderImpl<>();
         }
 
-        Builder name(String name);
+        Builder<T> name(String name);
 
-        Builder isPinned(boolean isPinned);
+        Builder<T> isPinned(boolean isPinned);
 
-        Builder isPinned(BooleanProperty isPinned);
+        Builder<T> isPinned(BooleanProperty isPinned);
 
-        Builder saveState(boolean saveState);
+        Builder<T> saveState(boolean saveState);
 
-        Builder initialPosition(Position initialPosition);
+        Builder<T> initialPosition(Position initialPosition);
 
-        Builder async(NamedThreadSource async);
+        Builder<T> async(NamedThreadSource async);
 
-        Builder itemsAlignment(Items.Alignment alignment);
+        Builder<T> contentView(Content.View<T> view);
 
-        Builder items(Supplier<List<Item>> items);
+        Builder<T> show(Behavior.Show show);
 
-        Builder show(Behavior.Show show);
+        Builder<T> hide(Behavior.Hide hide);
 
-        Builder hide(Behavior.Hide hide);
+        Builder<T> mouseWatcher(MouseWatcher mouseWatcher);
 
-        Builder mouseWatcher(MouseWatcher mouseWatcher);
-
-        Sidebar done();
+        Sidepane<T> done();
     }
 
     enum State implements CommonEnum<State> {
@@ -84,7 +81,7 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
     ReadOnlyObjectProperty<State> state();
 
-    Control control();
+    Control<T> control();
 
     @Override
     void close(); // override for not throwing IOException
@@ -137,7 +134,7 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
     }
 
-    interface Control extends Movable {
+    interface Control<T> extends Movable {
 
         /* All methods of this interface are meant to be executed asynchronously.
          * Method invocation only issue a command to underlying component but do not wait for completion and returns
@@ -156,7 +153,7 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
 
         Session session();
 
-        Items items();
+        Content<T> content();
 
         OnTouchDelay onTouchDelay();
 
@@ -214,42 +211,42 @@ public interface Sidebar extends Named, Rectangle, Visible, Closeable, WatchBear
         }
     }
 
-    interface Items {
-
-        enum Alignment implements CommonEnum<Alignment> {
-
-            PARALLEL_TO_SIDE,
-            PERPENDICULAR_TO_SIDE;
-        }
-
-        Items.Alignment itemsAlignment();
-
-        /* Intended to be read-only.
-         * Returns unmodifiable List or copy of original List though it's changes will be ignored. In order
-         * to change items list use change(Consumer<List<Item>>) method.
-         */
-        List<Item> all();
+    public static interface Content<T>  {
 
         /*
-         * Passes actual modifiable list of Items.
-         * All changes made to passed list will be reflected on sidebar when method returns.
-         * It is possible to change items completely or even remove all ot them using this method.         *
+         *
+         *
          */
-        void change(Consumer<List<Item>> allItemsToChange);
+        public static interface View<T> extends Visible {
 
-    }
+            void initOnMount(
+                    Runnable invokeResize,
+                    Runnable hideContextMenu,
+                    BiConsumer<MouseEvent, Menu> onMenuInvoked);
 
-    interface Item extends Unique, Named, Visible {
+            void adoptChange(Screen.Side newSide);
 
-        default List<MenuItem> itemContextMenuItems() {
-            return emptyList();
+            void adoptGivenChange(Consumer<T> mutation);
+
+            /*
+             * Override to pass pseudo class change to underlying JavaFX component's of this View implementation
+             */
+            void pseudoClassStateChanged(PseudoClass pseudoClass, boolean active);
+
         }
 
-        default void onThrownInRun(Throwable t) {
-            // for override
+        /*
+         * View<T> can extend Storable
+         */
+        public static interface Storable {
+
+            Serializable stateToStore();
+
+            void restoreStateFromStored(Serializable storedState);
         }
 
-        String run(); // runs logic and returns error message, if any. If run is successful, returns null;
+        void change(Consumer<T> mutation);
+
     }
 
     /*

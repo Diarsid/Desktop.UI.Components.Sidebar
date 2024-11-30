@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl.areas;
+package diarsid.desktop.ui.components.sidepane.impl.areas;
 
 import javafx.beans.property.ObjectProperty;
 import javafx.stage.Stage;
@@ -13,11 +13,11 @@ import diarsid.support.javafx.geometry.Screen;
 import static diarsid.desktop.ui.geometry.MutableAnchor.mutableAnchor;
 import static diarsid.desktop.ui.geometry.MutableSize.mutableSize;
 
-public class SidebarAreaWhenShown extends SidebarStagePropertiesListener implements Rectangle  {
+public class SidepaneAreaWhenShown extends SidepaneStagePropertiesListener implements Rectangle  {
 
     private final MutableRectangle shownArea;
 
-    public SidebarAreaWhenShown(Screen screen, Stage stage, ObjectProperty<Side> side) {
+    public SidepaneAreaWhenShown(Screen screen, Stage stage, ObjectProperty<Side> side) {
         super(screen, stage, side);
 
         this.shownArea = new RealMutableRectangle(

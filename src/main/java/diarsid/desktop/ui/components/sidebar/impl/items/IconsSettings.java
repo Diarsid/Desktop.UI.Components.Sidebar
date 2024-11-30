@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.api.impl.items;
+package diarsid.desktop.ui.components.sidebar.impl.items;
 
 import java.util.Optional;
 

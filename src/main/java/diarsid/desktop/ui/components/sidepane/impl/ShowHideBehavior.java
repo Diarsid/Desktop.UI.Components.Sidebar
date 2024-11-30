@@ -1,4 +1,4 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidepane.impl;
 
 public interface ShowHideBehavior {
 

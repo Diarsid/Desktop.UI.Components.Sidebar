@@ -1,9 +1,8 @@
-package diarsid.desktop.ui.components.sidebar.impl;
+package diarsid.desktop.ui.components.sidepane.impl;
 
 import java.awt.MouseInfo;
 import java.awt.Point;
 import java.util.EnumMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -11,8 +10,8 @@ import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -26,9 +25,10 @@ import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Menu;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -36,12 +36,11 @@ import javafx.stage.WindowEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import diarsid.desktop.ui.components.sidebar.api.Sidebar;
-import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaForTouch;
-import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaWhenHidden;
-import diarsid.desktop.ui.components.sidebar.impl.areas.SidebarAreaWhenShown;
-import diarsid.desktop.ui.components.sidebar.impl.contextmenu.SidebarContextMenu;
-import diarsid.desktop.ui.components.sidebar.impl.items.SidebarItems;
+import diarsid.desktop.ui.components.sidepane.api.Sidepane;
+import diarsid.desktop.ui.components.sidepane.impl.areas.SidepaneAreaForTouch;
+import diarsid.desktop.ui.components.sidepane.impl.areas.SidepaneAreaWhenHidden;
+import diarsid.desktop.ui.components.sidepane.impl.areas.SidepaneAreaWhenShown;
+import diarsid.desktop.ui.components.sidepane.impl.contextmenu.SidebarContextMenu;
 import diarsid.desktop.ui.geometry.Anchor;
 import diarsid.desktop.ui.geometry.PointToSide;
 import diarsid.desktop.ui.geometry.Rectangle;
@@ -64,36 +63,34 @@ import static java.util.Objects.nonNull;
 import static javafx.css.PseudoClass.getPseudoClass;
 import static javafx.scene.input.MouseEvent.MOUSE_PRESSED;
 
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Behavior.Type.INSTANT;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Items.Alignment.PARALLEL_TO_SIDE;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.MANUAL;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.Session.Touch.Kind.PROGRAMMATICAL;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDDEN;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_HIDING;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_SHOWING;
-import static diarsid.desktop.ui.components.sidebar.api.Sidebar.State.IS_SHOWN;
-import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.BLOCK;
-import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.TOUCH_AND_BLOCK;
-import static diarsid.desktop.ui.components.sidebar.impl.SidebarImpl.NamedTypedSessionAction.Type.UNBLOCK;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Behavior.Type.INSTANT;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Session.Touch.Kind.MANUAL;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.Session.Touch.Kind.PROGRAMMATICAL;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.State.IS_HIDDEN;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.State.IS_HIDING;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.State.IS_SHOWING;
+import static diarsid.desktop.ui.components.sidepane.api.Sidepane.State.IS_SHOWN;
+import static diarsid.desktop.ui.components.sidepane.impl.SidepaneImpl.NamedTypedSessionAction.Type.BLOCK;
+import static diarsid.desktop.ui.components.sidepane.impl.SidepaneImpl.NamedTypedSessionAction.Type.TOUCH_AND_BLOCK;
+import static diarsid.desktop.ui.components.sidepane.impl.SidepaneImpl.NamedTypedSessionAction.Type.UNBLOCK;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.BOTTOM;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.LEFT;
-import static diarsid.desktop.ui.geometry.Rectangle.Side.Orientation.HORIZONTAL;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.Orientation.VERTICAL;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.RIGHT;
 import static diarsid.desktop.ui.geometry.Rectangle.Side.TOP;
 import static diarsid.support.javafx.geometry.Screen.Type.PHYSICAL;
 import static diarsid.support.javafx.stage.StageMoving.MOVE_BY_MOUSE;
 
-public class SidebarImpl implements
-        Sidebar,
-        Sidebar.Control,
-        Sidebar.Items,
-        Sidebar.Session,
-        Sidebar.OnTouchDelay,
+public class SidepaneImpl<T> implements
+        Sidepane<T>,
+        Sidepane.Control<T>,
+        Sidepane.Content<T>,
+        Sidepane.Session,
+        Sidepane.OnTouchDelay,
         Anchor,
         Size {
 
-    private static final Logger log = LoggerFactory.getLogger(SidebarImpl.class);
+    private static final Logger log = LoggerFactory.getLogger(SidepaneImpl.class);
 
     private static final String PROGRAMMATIC_INSTANT_MOVE = "PROGRAMMATIC_MOVE";
     private static final String ADJUSTMENT_MOVE = "ADJUSTMENT_MOVE";
@@ -103,9 +100,6 @@ public class SidebarImpl implements
     private static final PseudoClass CSS_TOP = getPseudoClass(TOP.name().toLowerCase());
     private static final PseudoClass CSS_RIGHT = getPseudoClass(RIGHT.name().toLowerCase());
     private static final PseudoClass CSS_BOTTOM = getPseudoClass(BOTTOM.name().toLowerCase());
-
-    private static final PseudoClass CSS_ITEMS_VERTICAL = getPseudoClass(VERTICAL.name().toLowerCase());
-    private static final PseudoClass CSS_ITEMS_HORIZONTAL = getPseudoClass(HORIZONTAL.name().toLowerCase());
     
     static {
         PSEUDO_CLASS_ACTIVENESS_BY_SIDE = new EnumMap<>(Side.class);
@@ -138,7 +132,6 @@ public class SidebarImpl implements
     private final String name;
     private final ObjectProperty<State> state;
     private final ObjectProperty<Position.Current> position;
-    private final Items.Alignment itemsAlignment;
     private final BooleanProperty isPinned;
 
     private final Stage stage;
@@ -148,24 +141,21 @@ public class SidebarImpl implements
     private final Pane sidebar;
     private final HBox sidebarMargin;
 
+    private final View<T> view;
+
     private final ObjectProperty<Position.Relative> relative;
 
     private final ObjectProperty<Rectangle.Side> side;
-    private final SidebarSession session;
+    private final SidepaneSession session;
 
-    private final SidebarItems items;
-
-    private final HBox itemsViewHorizontal;
-    private final VBox itemsViewVertical;
-
-    private final SidebarAreaForTouch touchArea;
-    private final SidebarAreaWhenHidden hiddenArea;
-    private final SidebarAreaWhenShown shownArea;
+    private final SidepaneAreaForTouch touchArea;
+    private final SidepaneAreaWhenHidden hiddenArea;
+    private final SidepaneAreaWhenShown shownArea;
 
     private final SidebarContextMenu sidebarContextMenu;
 
     private final MouseWatcher mouseWatcher;
-    private final SidebarMouseWatch watch;
+    private final SidepaneMouseWatch watch;
 
     private final ShowHideBehavior showHide;
 
@@ -176,20 +166,18 @@ public class SidebarImpl implements
 
     private final IntegerProperty onTouchDelayMillis;
 
-    public SidebarImpl(
+    public SidepaneImpl(
             String name,
             Position position,
             BooleanProperty isPinned,
             NamedThreadSource namedThreadSource,
-            Items.Alignment itemsAlignment,
-            Supplier<List<Item>> initialItems,
+            View<T> view,
             Behavior.Show show,
             Behavior.Hide hide,
             MouseWatcher mouseWatcher) {
 
         this.name = name;
         this.state = new SimpleObjectProperty<>();
-        this.itemsAlignment = itemsAlignment;
         this.isPinned = isPinned;
 
         this.hiddenStages = new HiddenStages();
@@ -213,38 +201,26 @@ public class SidebarImpl implements
         });
 
         this.sidebar = new HBox();
-        this.sidebar.getStyleClass().add("sidebar");
+        this.sidebar.getStyleClass().add("sidepane");
 
         this.sidebarMargin = new HBox();
         this.sidebarMargin.getChildren().add(this.sidebar);
-        this.sidebarMargin.getStyleClass().add("sidebar-margin");
+        this.sidebarMargin.getStyleClass().add("sidepane-margin");
         this.sidebarMargin.setAlignment(Pos.CENTER);
 
         this.position = new SimpleObjectProperty<>();
         this.relative = new SimpleObjectProperty<>(null);
-
-        this.itemsViewHorizontal = new HBox();
-        this.itemsViewHorizontal.getStyleClass().add("sidebar-items");
-        this.itemsViewHorizontal.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, false);
-        this.itemsViewHorizontal.pseudoClassStateChanged(CSS_ITEMS_HORIZONTAL, true);
-
-        this.itemsViewVertical = new VBox();
-        this.itemsViewVertical.getStyleClass().add("sidebar-items");
-        this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_VERTICAL, true);
-        this.itemsViewVertical.pseudoClassStateChanged(CSS_ITEMS_HORIZONTAL, false);
-
-        this.applyPseudoClass(this.side.get());
 
         this.sidebarContextMenu = new SidebarContextMenu(this.isPinned, this::moveTo);
         this.sidebarContextMenu.setAutoHide(true);
 
         this.sidebar.addEventHandler(MOUSE_PRESSED, event -> {
             if ( event.isPrimaryButtonDown() ) {
-                this.sidebarContextMenu.removeSelectedItemSubmenu();
+                this.sidebarContextMenu.removeAdditionalSubmenu();
                 this.sidebarContextMenu.hide();
             }
             else if ( event.isSecondaryButtonDown() ) {
-                this.sidebarContextMenu.removeSelectedItemSubmenu();
+                this.sidebarContextMenu.removeAdditionalSubmenu();
                 this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
             }
         });
@@ -252,20 +228,25 @@ public class SidebarImpl implements
         this.sidebarContextMenu.setOnShowing(this::blockSessionByContextMenu);
         this.sidebarContextMenu.setOnHiding(this::unblockSessionByContextMenu);
 
-        this.items = new SidebarItems(
-                initialItems,
-                (prop, oldV, newV) -> {
-                    Platform.runLater(() -> this.adjustSizeAndPositioningAfterStageChange("RESIZE"));
-                },
-                this.sidebarContextMenu::hide,
-                (event, itemSubMenu) -> {
-                    this.sidebarContextMenu.addSelectedItemSubmenu(itemSubMenu);
-                    this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
-                });
+        Runnable invokeResize = () -> {
+            Platform.runLater(() -> this.adjustSizeAndPositioningAfterStageChange("RESIZE"));
+        };
+
+        Runnable hideContextMenu = this.sidebarContextMenu::hide;
+
+        BiConsumer<MouseEvent, Menu> onMenuInvoked = (event, subMenu) -> {
+            this.sidebarContextMenu.addSubmenu(subMenu);
+            this.sidebarContextMenu.show(this.sidebar, event.getScreenX(), event.getScreenY());
+        };
+
+        this.view = view;
+        this.view.initOnMount(invokeResize, hideContextMenu, onMenuInvoked);
+
+        this.applyPseudoClass(this.side.get());
 
         this.arrangeView(this.side.get());
 
-        this.session = new SidebarSession(
+        this.session = new SidepaneSession(
                 this.name,
                 500,
                 namedThreadSource,
@@ -284,7 +265,7 @@ public class SidebarImpl implements
         Scene scene = new Scene(this.sidebarMargin);
 
         scene.setFill(Color.TRANSPARENT);
-        scene.getStylesheets().add("file:./sidebar.css");
+        scene.getStylesheets().add("file:./sidepane.css");
 
         this.stageMoving = new StageMoving(this.stage);
 
@@ -412,13 +393,13 @@ public class SidebarImpl implements
                 throw this.side.get().unsupported();
         }
 
-        this.hiddenArea = new SidebarAreaWhenHidden(this.screen, this.stage, this.side);
-        this.touchArea = new SidebarAreaForTouch(this.screen, this.stage, this.side);
-        this.shownArea = new SidebarAreaWhenShown(this.screen, this.stage, this.side);
+        this.hiddenArea = new SidepaneAreaWhenHidden(this.screen, this.stage, this.side);
+        this.touchArea = new SidepaneAreaForTouch(this.screen, this.stage, this.side);
+        this.shownArea = new SidepaneAreaWhenShown(this.screen, this.stage, this.side);
 
         this.onTouchDelayMillis = new SimpleIntegerProperty(0);
 
-        this.watch = new SidebarMouseWatch(
+        this.watch = new SidepaneMouseWatch(
                 this.name, this.touchArea, manualTouchSession, namedThreadSource, this.onTouchDelayMillis);
 
         CyclicBarrier actionOnPlatformExecution = new CyclicBarrier(2);
@@ -866,35 +847,9 @@ public class SidebarImpl implements
             view.getChildren().clear();
             this.sidebar.getChildren().clear();
         }
-        Pane itemsView;
 
-        switch ( newSide.orientation ) {
-            case VERTICAL:
-                if ( this.itemsAlignment.is(PARALLEL_TO_SIDE) ) {
-                    itemsView = this.itemsViewVertical;
-                }
-                else {
-                    itemsView = this.itemsViewHorizontal;
-                }
-                itemsView.getChildren().addAll(this.items.nodes());
-
-                this.sidebar.getChildren().setAll(itemsView);
-                break;
-            case HORIZONTAL:
-                if ( this.itemsAlignment.is(PARALLEL_TO_SIDE) ) {
-                    itemsView = this.itemsViewHorizontal;
-                }
-                else {
-                    itemsView = this.itemsViewVertical;
-                }
-                itemsView.getChildren().addAll(this.items.nodes());
-
-                this.sidebar.getChildren().setAll(itemsView);
-                break;
-            default:
-                throw newSide.orientation.unsupported();
-        }
-
+        this.view.adoptChange(newSide);
+        this.sidebar.getChildren().setAll(this.view.node());
         this.stage.sizeToScene();
     }
 
@@ -904,8 +859,7 @@ public class SidebarImpl implements
                 .forEach((pseudoClass, active) -> {
                     this.sidebar.pseudoClassStateChanged(pseudoClass, active);
                     this.sidebarMargin.pseudoClassStateChanged(pseudoClass, active);
-                    this.itemsViewHorizontal.pseudoClassStateChanged(pseudoClass, active);
-                    this.itemsViewVertical.pseudoClassStateChanged(pseudoClass, active);
+                    this.view.pseudoClassStateChanged(pseudoClass, active);
                 });
     }
 
@@ -979,23 +933,13 @@ public class SidebarImpl implements
     }
 
     @Override
-    public Alignment itemsAlignment() {
-        return this.itemsAlignment;
-    }
-
-    @Override
-    public Control control() {
+    public Control<T> control() {
         return this;
     }
 
     @Override
     public void close() {
         this.session.dispose();
-    }
-
-    @Override
-    public Items items() {
-        return this;
     }
 
     @Override
@@ -1042,18 +986,6 @@ public class SidebarImpl implements
     @Override
     public boolean isSet() {
         return this.onTouchDelayMillis.get() > 0;
-    }
-
-    private static class QueuedAction {
-    }
-
-    private static class ItemsChange extends QueuedAction {
-
-        private final Consumer<List<Item>> mutation;
-
-        public ItemsChange(Consumer<List<Item>> mutation) {
-            this.mutation = mutation;
-        }
     }
 
     private static class SessionAction extends QueuedAction {
@@ -1149,9 +1081,11 @@ public class SidebarImpl implements
     }
 
     private void process(QueuedAction queuedAction) {
-        if ( queuedAction instanceof ItemsChange ) {
-            this.items.apply(((ItemsChange) queuedAction).mutation);
-            this.rebuildItemsView();
+        if ( queuedAction instanceof ContentChange) {
+            this.view.adoptGivenChange(((ContentChange<T>) queuedAction).mutation);
+            this.sidebar.getChildren().setAll(this.view.node());
+
+            this.adjustSizeAndPositioningAfterStageChange("ITEMS CHANGE");
         }
         else if ( queuedAction instanceof ProgrammaticMove) {
             this.process((ProgrammaticMove) queuedAction);
@@ -1199,15 +1133,6 @@ public class SidebarImpl implements
                 }
             }
         }
-    }
-
-    private void rebuildItemsView() {
-        Pane childrenView = (Pane) this.sidebar.getChildren().get(0);
-        List<Node> currentItemNodes = childrenView.getChildren();
-        currentItemNodes.clear();
-        currentItemNodes.addAll(this.items.nodes());
-
-        this.adjustSizeAndPositioningAfterStageChange("ITEMS CHANGE");
     }
 
     private void adjustSizeAndPositioningAfterStageChange(String reason) {
@@ -1526,28 +1451,28 @@ public class SidebarImpl implements
         return this.screen.height() - this.stage.getWidth();
     }
 
-    private double calculateRelativeX(Sidebar.Position.Relative.Place relativePlace) {
+    private double calculateRelativeX(Sidepane.Position.Relative.Place relativePlace) {
         switch ( relativePlace ) {
             case CENTER: return (this.screen.width() - this.stage.getWidth()) / 2;
             default: throw  relativePlace.unsupported();
         }
     }
 
-    private double calculateRelativeXOppositeOrientation(Sidebar.Position.Relative.Place relativePlace) {
+    private double calculateRelativeXOppositeOrientation(Sidepane.Position.Relative.Place relativePlace) {
         switch ( relativePlace ) {
             case CENTER: return (this.screen.width() - this.stage.getHeight()) / 2;
             default: throw  relativePlace.unsupported();
         }
     }
 
-    private double calculateRelativeY(Sidebar.Position.Relative.Place relativePlace) {
+    private double calculateRelativeY(Sidepane.Position.Relative.Place relativePlace) {
         switch ( relativePlace ) {
             case CENTER: return (this.screen.height() - this.stage.getHeight()) / 2;
             default: throw  relativePlace.unsupported();
         }
     }
 
-    private double calculateRelativeYOppositeOrientation(Sidebar.Position.Relative.Place relativePlace) {
+    private double calculateRelativeYOppositeOrientation(Sidepane.Position.Relative.Place relativePlace) {
         switch ( relativePlace ) {
             case CENTER: return (this.screen.height() - this.stage.getWidth()) / 2;
             default: throw  relativePlace.unsupported();
@@ -1606,13 +1531,13 @@ public class SidebarImpl implements
     }
 
     @Override
-    public List<Item> all() {
-        return this.items.unmodifiableList();
+    public Content<T> content() {
+        return this;
     }
 
     @Override
-    public void change(Consumer<List<Item>> allItemsToChange) {
-        this.queueAction(new ItemsChange(allItemsToChange));
+    public void change(Consumer<T> allItemsToChange) {
+        this.queueAction(new ContentChange<>(allItemsToChange));
     }
 
     @Override
